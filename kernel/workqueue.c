@@ -286,14 +286,10 @@ struct workqueue_struct *system_highpri_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_highpri_wq);
 struct workqueue_struct *system_long_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_long_wq);
-struct workqueue_struct *system_nrt_wq __read_mostly;
-EXPORT_SYMBOL_GPL(system_nrt_wq);
 struct workqueue_struct *system_unbound_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_unbound_wq);
 struct workqueue_struct *system_freezable_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_freezable_wq);
-struct workqueue_struct *system_nrt_freezable_wq __read_mostly;
-EXPORT_SYMBOL_GPL(system_nrt_freezable_wq);
 struct workqueue_struct *system_power_efficient_wq __read_mostly;
 EXPORT_SYMBOL_GPL(system_power_efficient_wq);
 struct workqueue_struct *system_freezable_power_efficient_wq __read_mostly;
@@ -3887,13 +3883,10 @@ static int __init init_workqueues(void)
 	system_wq = alloc_workqueue("events", 0, 0);
 	system_highpri_wq = alloc_workqueue("events_highpri", WQ_HIGHPRI, 0);
 	system_long_wq = alloc_workqueue("events_long", 0, 0);
-	system_nrt_wq = alloc_workqueue("events_nrt", WQ_NON_REENTRANT, 0);
 	system_unbound_wq = alloc_workqueue("events_unbound", WQ_UNBOUND,
 					    WQ_UNBOUND_MAX_ACTIVE);
 	system_freezable_wq = alloc_workqueue("events_freezable",
 					      WQ_FREEZABLE, 0);
-	system_nrt_freezable_wq = alloc_workqueue("events_nrt_freezable",
-			WQ_NON_REENTRANT | WQ_FREEZABLE, 0);
 	system_power_efficient_wq = alloc_workqueue("events_power_efficient",
 			WQ_POWER_EFFICIENT, 0);
 	system_freezable_power_efficient_wq = alloc_workqueue("events_freezable_power_efficient",
@@ -3901,8 +3894,7 @@ static int __init init_workqueues(void)
 			0);
 
 	BUG_ON(!system_wq || !system_highpri_wq || !system_long_wq ||
-		!system_nrt_wq || !system_unbound_wq || !system_freezable_wq ||
-		!system_nrt_freezable_wq ||
+		!system_unbound_wq || !system_freezable_wq ||
 		!system_power_efficient_wq ||
 		!system_freezable_power_efficient_wq);
 	return 0;
