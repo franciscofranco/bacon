@@ -324,10 +324,6 @@ enum {
  * system_long_wq is similar to system_wq but may host long running
  * works.  Queue flushing might take relatively long.
  *
- * system_nrt_wq is non-reentrant and guarantees that any given work
- * item is never executed in parallel by multiple CPUs.  Queue
- * flushing might take relatively long.
- *
  * system_unbound_wq is unbound workqueue.  Workers are not bound to
  * any specific CPU, not concurrency managed, and all queued works are
  * executed immediately as long as max_active limit is not reached and
@@ -335,9 +331,6 @@ enum {
  *
  * system_freezable_wq is equivalent to system_wq except that it's
  * freezable.
- *
- * system_nrt_freezable_wq is equivalent to system_nrt_wq except that
- * it's freezable.
  *
  * *_power_efficient_wq are inclined towards saving power and converted
  * into WQ_UNBOUND variants if 'wq_power_efficient' is enabled; otherwise,
@@ -347,12 +340,24 @@ enum {
  */
 extern struct workqueue_struct *system_wq;
 extern struct workqueue_struct *system_long_wq;
-extern struct workqueue_struct *system_nrt_wq;
 extern struct workqueue_struct *system_unbound_wq;
 extern struct workqueue_struct *system_freezable_wq;
-extern struct workqueue_struct *system_nrt_freezable_wq;
 extern struct workqueue_struct *system_power_efficient_wq;
 extern struct workqueue_struct *system_freezable_power_efficient_wq;
+
+static inline struct workqueue_struct *__system_nrt_wq(void)
+{
+	return system_wq;
+}
+
+static inline struct workqueue_struct *__system_nrt_freezable_wq(void)
+{
+	return system_freezable_wq;
+}
+
+/* equivlalent to system_wq and system_freezable_wq, deprecated */
+#define system_nrt_wq			__system_nrt_wq()
+#define system_nrt_freezable_wq		__system_nrt_freezable_wq()
 
 extern struct workqueue_struct *
 __alloc_workqueue_key(const char *fmt, unsigned int flags, int max_active,
