@@ -436,10 +436,18 @@ static int kgsl_pwrctrl_gpuclk_show(struct device *dev,
 {
 	struct kgsl_device *device = kgsl_device_from_dev(dev);
 	struct kgsl_pwrctrl *pwr;
+	unsigned int level;
+
 	if (device == NULL)
 		return 0;
 	pwr = &device->pwrctrl;
-	return snprintf(buf, PAGE_SIZE, "%ld\n", kgsl_pwrctrl_active_freq(pwr));
+
+	if (device->state == KGSL_STATE_SLUMBER)
+		level = pwr->num_pwrlevels - 1;
+	else
+		level = pwr->active_pwrlevel;
+	return snprintf(buf, PAGE_SIZE, "%d\n",
+			pwr->pwrlevels[level].gpu_freq);
 }
 
 static int kgsl_pwrctrl_idle_timer_store(struct device *dev,
