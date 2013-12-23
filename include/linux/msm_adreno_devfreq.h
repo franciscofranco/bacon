@@ -44,4 +44,11 @@ struct devfreq_msm_adreno_tz_data {
 	unsigned int device_id;
 };
 
+struct devfreq_conservative_data {
+	struct {
+		unsigned long total_time;
+		unsigned long busy_time;
+	} bin;
+};
+
 #endif
