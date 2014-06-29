@@ -182,11 +182,30 @@ static void run_boost_migration(unsigned int cpu)
 	put_online_cpus();
 }
 
+static void cpuboost_set_prio(unsigned int policy, unsigned int prio)
+{
+	struct sched_param param = { .sched_priority = prio };
+
+	sched_setscheduler(current, policy, &param);
+}
+
+static void cpuboost_park(unsigned int cpu)
+{
+	cpuboost_set_prio(SCHED_NORMAL, 0);
+}
+
+static void cpuboost_unpark(unsigned int cpu)
+{
+	cpuboost_set_prio(SCHED_FIFO, MAX_RT_PRIO - 1);
+}
+
 static struct smp_hotplug_thread cpuboost_threads = {
 	.store		= &thread,
 	.thread_should_run = boost_migration_should_run,
 	.thread_fn	= run_boost_migration,
 	.thread_comm	= "boost_sync/%u",
+	.park		= cpuboost_park,
+	.unpark		= cpuboost_unpark,
 };
 
 static int boost_migration_notify(struct notifier_block *nb,
