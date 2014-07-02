@@ -53,18 +53,6 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 		stat.total_time >>= 7;
 	}
 
-	if (data && data->simple_scaling) {
-		if (stat.busy_time * 100 >
-		    stat.total_time * dfso_upthreshold)
-			*freq = max;
-		else if (stat.busy_time * 100 <
-		    stat.total_time * dfso_downdifferential)
-			*freq = min;
-		else
-			*freq = df->previous_freq;
-		return 0;
-	}
-
 	/* Assume MAX if it is going to be divided by zero */
 	if (stat.total_time == 0) {
 		*freq = max;
