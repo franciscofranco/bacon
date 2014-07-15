@@ -30,7 +30,10 @@ int g_kcal_r = 255;
 int g_kcal_g = 255;
 int g_kcal_b = 255;
 
+int g_kcal_min = 35;
+
 extern int kcal_set_values(int kcal_r, int kcal_g, int kcal_b);
+extern int kcal_set_min(int kcal_min);
 static int __init display_kcal_setup(char *kcal)
 {
 	char vaild_k = 0;
@@ -38,15 +41,19 @@ static int __init display_kcal_setup(char *kcal)
 	int kcal_g = 255;
 	int kcal_b = 255;
 
-	sscanf(kcal, "%d|%d|%d|%c", &kcal_r, &kcal_g, &kcal_b, &vaild_k );
+	int kcal_min = 35;
+
+	sscanf(kcal, "%d|%d|%d|%c", &kcal_r, &kcal_g, &kcal_b, &vaild_k);
 	pr_info("kcal is %d|%d|%d|%c\n", kcal_r, kcal_g, kcal_b, vaild_k);
 
 	if (vaild_k != 'K') {
 		pr_info("kcal not calibrated yet : %d\n", vaild_k);
 		kcal_r = kcal_g = kcal_b = 255;
+		kcal_min = 35;
 	}
 
 	kcal_set_values(kcal_r, kcal_g, kcal_b);
+	kcal_set_min(kcal_min);
 	return 1;
 }
 __setup("lcd.kcal=", display_kcal_setup);
