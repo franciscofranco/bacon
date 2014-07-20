@@ -35,6 +35,12 @@
 #include "mdss_mdp.h"
 #include "mdss_mdp_rotator.h"
 
+#if defined(CONFIG_LCD_KCAL)
+#include <mach/kcal.h>
+
+extern struct kcal_platform_data *kcal_pdata;
+#endif
+
 #define VSYNC_PERIOD 16
 #define BORDERFILL_NDX	0x0BF000BF
 #define CHECK_BOUNDS(offset, size, max_size) \
@@ -961,6 +967,11 @@ int mdss_mdp_overlay_start(struct msm_fb_data_type *mfd)
 
 		if (!mdp5_data->mdata->batfet)
 			mdss_mdp_batfet_ctrl(mdp5_data->mdata, true);
+
+		if (!ctl->mfd->index) {
+			kcal_pdata->refresh_display();
+		}
+
 		mdss_mdp_release_splash_pipe(mfd);
 		return 0;
 	}

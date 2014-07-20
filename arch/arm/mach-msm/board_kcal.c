@@ -26,12 +26,6 @@
 #include <asm/system_info.h>
 #include <mach/kcal.h>
 
-int g_kcal_r = 255;
-int g_kcal_g = 255;
-int g_kcal_b = 255;
-
-int g_kcal_min = 35;
-
 extern int kcal_set_values(int kcal_r, int kcal_g, int kcal_b);
 extern int kcal_set_min(int kcal_min);
 static int __init display_kcal_setup(char *kcal)
