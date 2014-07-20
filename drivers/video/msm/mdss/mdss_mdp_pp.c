@@ -1867,8 +1867,6 @@ void mdss_mdp_pp_argc(void)
 
 	pgc_config->flags |= MDP_PP_OPS_WRITE;
 	pgc_config->flags |= MDP_PP_OPS_ENABLE;
-
-	pr_info(">>>>> %s \n", __func__);
 }
 
 
@@ -1904,15 +1902,11 @@ void mdss_mdp_pp_argc_kcal(int kr, int kg, int kb)
 	pgc_config->flags |= MDP_PP_OPS_WRITE;
 	pgc_config->flags |= MDP_PP_OPS_ENABLE;
 	mdss_pp_res->pp_disp_flags[disp_num] |= PP_FLAGS_DIRTY_PGC;
-
-	pr_info(">>>>> %s \n", __func__);
 }
 
 int update_preset_lcdc_lut(void)
 {
 	int ret = 0;
-
-	pr_info("update_preset_lcdc_lut red=[%d], green=[%d], blue=[%d]\n", g_kcal_r, g_kcal_g, g_kcal_b);
 
 	mdss_mdp_pp_argc_kcal(g_kcal_r,g_kcal_g,g_kcal_b);
 
