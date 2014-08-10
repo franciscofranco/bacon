@@ -11,6 +11,7 @@
  *
  */
 
+#include <linux/sched.h>
 #include <linux/debugfs.h>
 #include <linux/module.h>
 #include <linux/kernel.h>
