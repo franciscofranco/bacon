@@ -417,6 +417,15 @@ static unsigned int choose_freq(
 	return freq;
 }
 
+static unsigned int calc_freq(struct cpufreq_interactive_cpuinfo *pcpu, 
+	unsigned int load)
+{
+	unsigned int max = pcpu->policy->max;
+	unsigned int min = pcpu->policy->min;
+
+	return min + load * (max - min) / 100;
+}
+
 static u64 update_load(int cpu)
 {
 	struct cpufreq_interactive_cpuinfo *pcpu = &per_cpu(cpuinfo, cpu);
@@ -489,13 +498,13 @@ static void cpufreq_interactive_timer(unsigned long data)
 		if (pcpu->target_freq < boosted_freq) {
 			new_freq = boosted_freq;
 		} else {
-			new_freq = choose_freq(pcpu, loadadjfreq);
+			new_freq = calc_freq(pcpu, cpu_load);
 
 			if (new_freq < boosted_freq)
 				new_freq = boosted_freq;
 		}
 	} else {
-		new_freq = choose_freq(pcpu, loadadjfreq);
+		new_freq = calc_freq(pcpu, cpu_load);
 		if (new_freq > boosted_freq &&
 				pcpu->target_freq < boosted_freq)
 			new_freq = boosted_freq;
@@ -540,7 +549,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	pcpu->hispeed_validate_time = now;
 
 	if (cpufreq_frequency_table_target(pcpu->policy, pcpu->freq_table,
-					   new_freq, CPUFREQ_RELATION_L,
+					   new_freq, CPUFREQ_RELATION_C,
 					   &index)) {
 		spin_unlock_irqrestore(&pcpu->target_freq_lock, flags);
 		goto rearm;
