@@ -439,11 +439,7 @@ struct rq {
 	u64 avg_idle;
 #endif
 
-	/*
-	 * max_freq = user or thermal defined maximum
-	 * max_possible_freq = maximum supported by hardware
-	 */
-	unsigned int cur_freq, max_freq, min_freq, max_possible_freq;
+	int cur_freq, max_freq, min_freq;
 	u64 cumulative_runnable_avg;
 
 #ifdef CONFIG_IRQ_TIME_ACCOUNTING
@@ -561,8 +557,6 @@ DECLARE_PER_CPU(int, sd_llc_id);
 #include "auto_group.h"
 
 extern unsigned int sched_ravg_window;
-extern unsigned int max_possible_freq;
-extern unsigned int min_max_freq;
 extern unsigned int pct_task_load(struct task_struct *p);
 extern void init_new_task_load(struct task_struct *p);
 
