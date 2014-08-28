@@ -425,7 +425,7 @@ static unsigned int calc_freq(struct cpufreq_interactive_cpuinfo *pcpu,
 	unsigned int max = pcpu->policy->max;
 	unsigned int min = pcpu->policy->min;
 
-	return min + load * (max - min) / 100;
+	return ((max - min) / 100) * load + min;
 }
 
 static u64 update_load(int cpu)
