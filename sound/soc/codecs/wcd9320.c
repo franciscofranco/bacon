@@ -7420,11 +7420,10 @@ static struct regulator *taiko_codec_find_regulator(struct snd_soc_codec *codec,
 	return NULL;
 }
 
-void update_headphones_volume_boost(int vol_boost)
+void update_headphones_volume_boost(unsigned int vol_boost)
 {
 	int default_val = soundcontrol.default_headphones_value;
-	int boosted_val = vol_boost != 0 ? 
-		default_val + vol_boost : default_val;
+	int boosted_val = default_val | vol_boost;
 
 	pr_info("Sound Control: Headphones default value %d\n", default_val);
 
@@ -7447,8 +7446,7 @@ void update_headphones_volume_boost(int vol_boost)
 void update_speaker_gain(int vol_boost)
 {
 	int default_val = soundcontrol.default_speaker_value;
-	int boosted_val = vol_boost != 0 ? 
-		default_val + vol_boost : default_val;
+	int boosted_val = default_val | vol_boost;
 
 	pr_info("Sound Control: Speaker default value %d\n", default_val);
 
@@ -7469,11 +7467,10 @@ void update_speaker_gain(int vol_boost)
 		TAIKO_A_CDC_RX7_VOL_CTL_B2_CTL));
 }
 
-void update_mic_gain(int vol_boost)
+void update_mic_gain(unsigned int vol_boost)
 {
 	int default_val = soundcontrol.default_mic_value;
-	int boosted_val = vol_boost != 0 ? 
-		default_val + vol_boost : default_val;
+	int boosted_val = default_val | vol_boost;
 
 	pr_info("Sound Control: Mic default value %d\n", default_val);
 
