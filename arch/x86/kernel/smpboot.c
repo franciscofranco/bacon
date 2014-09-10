@@ -66,6 +66,8 @@
 #include <asm/mwait.h>
 #include <asm/apic.h>
 #include <asm/io_apic.h>
+#include <asm/i387.h>
+#include <asm/fpu-internal.h>
 #include <asm/setup.h>
 #include <asm/uv/uv.h>
 #include <linux/mc146818rtc.h>
@@ -267,6 +269,13 @@ notrace static void __cpuinit start_secondary(void *unused)
 	 * Check TSC synchronization with the BP:
 	 */
 	check_tsc_sync_target();
+
+	/*
+	 * Enable the espfix hack for this CPU
+	 */
+#ifdef CONFIG_X86_ESPFIX64
+	init_espfix_ap();
+#endif
 
 	/*
 	 * We need to hold call_lock, so there is no inconsistency
@@ -850,6 +859,9 @@ int __cpuinit native_cpu_up(unsigned int cpu)
 	mtrr_save_state();
 
 	per_cpu(cpu_state, cpu) = CPU_UP_PREPARE;
+
+	/* the FPU context is blank, nobody can own it */
+	__cpu_disable_lazy_restore(cpu);
 
 	err = do_boot_cpu(apicid, cpu);
 	if (err) {

@@ -34,6 +34,8 @@
 
 #define SMP_TIMEOUT 30000 /* 30 seconds */
 
+#define AUTH_REQ_MASK   0x07
+
 #define SMP_MIN_CONN_INTERVAL	40	/* 50ms (40 * 1.25ms) */
 #define SMP_MAX_CONN_INTERVAL	56	/* 70ms (56 * 1.25ms) */
 #define SMP_MAX_CONN_LATENCY	0	/* 0ms (0 * 1.25ms) */
@@ -243,7 +245,7 @@ static void build_pairing_cmd(struct l2cap_conn *conn,
 		req->max_key_size = SMP_MAX_ENC_KEY_SIZE;
 		req->init_key_dist = all_keys;
 		req->resp_key_dist = dist_keys;
-		req->auth_req = authreq;
+		req->auth_req = (authreq & AUTH_REQ_MASK);
 		BT_DBG("SMP_CMD_PAIRING_REQ %d %d %d %d %2.2x %2.2x",
 				req->io_capability, req->oob_flag,
 				req->auth_req, req->max_key_size,
@@ -262,7 +264,7 @@ static void build_pairing_cmd(struct l2cap_conn *conn,
 	rsp->max_key_size = SMP_MAX_ENC_KEY_SIZE;
 	rsp->init_key_dist = req->init_key_dist & all_keys;
 	rsp->resp_key_dist = req->resp_key_dist & dist_keys;
-	rsp->auth_req = authreq;
+	rsp->auth_req = (authreq & AUTH_REQ_MASK);
 	BT_DBG("SMP_CMD_PAIRING_RSP %d %d %d %d %2.2x %2.2x",
 			req->io_capability, req->oob_flag, req->auth_req,
 			req->max_key_size, req->init_key_dist,
@@ -865,6 +867,7 @@ int smp_sig_channel(struct l2cap_conn *conn, struct sk_buff *skb)
 	}
 
 	hcon->smp_conn = conn;
+
 	skb_pull(skb, sizeof(code));
 
 	switch (code) {

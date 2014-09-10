@@ -380,7 +380,7 @@ static int create_card(struct usb_device *usb_dev,
 {
 	int devnum;
 	int err;
-	struct snd_card *card;
+	struct snd_card *card = NULL;
 	struct snd_usb_caiaqdev *dev;
 
 	for (devnum = 0; devnum < SNDRV_CARDS; devnum++)
