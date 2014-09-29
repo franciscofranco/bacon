@@ -308,10 +308,6 @@ void update_mmu_cache(struct vm_area_struct *vma, unsigned long address, pte_t *
 	tsb_index = MM_TSB_BASE;
 	tsb_hash_shift = PAGE_SHIFT;
 
-	/* Don't insert a non-valid PTE into the TSB, we'll deadlock.  */
-	if (!(pte_val(pte) & _PAGE_VALID))
-		return;
-
 	spin_lock_irqsave(&mm->context.lock, flags);
 
 #ifdef CONFIG_HUGETLB_PAGE
@@ -1071,14 +1067,7 @@ static int __init grab_mblocks(struct mdesc_handle *md)
 		m->size = *val;
 		val = mdesc_get_property(md, node,
 					 "address-congruence-offset", NULL);
-
-		/* The address-congruence-offset property is optional.
-		 * Explicity zero it be identifty this.
-		 */
-		if (val)
-			m->offset = *val;
-		else
-			m->offset = 0UL;
+		m->offset = *val;
 
 		numadbg("MBLOCK[%d]: base[%llx] size[%llx] offset[%llx]\n",
 			count - 1, m->base, m->size, m->offset);
@@ -2110,9 +2099,6 @@ EXPORT_SYMBOL(_PAGE_CACHE);
 #ifdef CONFIG_SPARSEMEM_VMEMMAP
 unsigned long vmemmap_table[VMEMMAP_SIZE];
 
-static long __meminitdata addr_start, addr_end;
-static int __meminitdata node_start;
-
 int __meminit vmemmap_populate(struct page *start, unsigned long nr, int node)
 {
 	unsigned long vstart = (unsigned long) start;
@@ -2143,29 +2129,14 @@ int __meminit vmemmap_populate(struct page *start, unsigned long nr, int node)
 
 			*vmem_pp = pte_base | __pa(block);
 
-			/* check to see if we have contiguous blocks */
-			if (addr_end != addr || node_start != node) {
-				if (addr_start)
-					printk(KERN_DEBUG " [%lx-%lx] on node %d\n",
-					       addr_start, addr_end-1, node_start);
-				addr_start = addr;
-				node_start = node;
-			}
-			addr_end = addr + VMEMMAP_CHUNK;
+			printk(KERN_INFO "[%p-%p] page_structs=%lu "
+			       "node=%d entry=%lu/%lu\n", start, block, nr,
+			       node,
+			       addr >> VMEMMAP_CHUNK_SHIFT,
+			       VMEMMAP_SIZE);
 		}
 	}
 	return 0;
-}
-
-void __meminit vmemmap_populate_print_last(void)
-{
-	if (addr_start) {
-		printk(KERN_DEBUG " [%lx-%lx] on node %d\n",
-		       addr_start, addr_end-1, node_start);
-		addr_start = 0;
-		addr_end = 0;
-		node_start = 0;
-	}
 }
 #endif /* CONFIG_SPARSEMEM_VMEMMAP */
 
@@ -2420,27 +2391,4 @@ void __flush_tlb_all(void)
 	}
 	__asm__ __volatile__("wrpr	%0, 0, %%pstate"
 			     : : "r" (pstate));
-}
-
-#ifdef CONFIG_SMP
-#define do_flush_tlb_kernel_range	smp_flush_tlb_kernel_range
-#else
-#define do_flush_tlb_kernel_range	__flush_tlb_kernel_range
-#endif
-
-void flush_tlb_kernel_range(unsigned long start, unsigned long end)
-{
-	if (start < HI_OBP_ADDRESS && end > LOW_OBP_ADDRESS) {
-		if (start < LOW_OBP_ADDRESS) {
-			flush_tsb_kernel_range(start, LOW_OBP_ADDRESS);
-			do_flush_tlb_kernel_range(start, LOW_OBP_ADDRESS);
-		}
-		if (end > HI_OBP_ADDRESS) {
-			flush_tsb_kernel_range(end, HI_OBP_ADDRESS);
-			do_flush_tlb_kernel_range(end, HI_OBP_ADDRESS);
-		}
-	} else {
-		flush_tsb_kernel_range(start, end);
-		do_flush_tlb_kernel_range(start, end);
-	}
 }

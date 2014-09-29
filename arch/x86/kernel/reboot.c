@@ -471,30 +471,6 @@ static struct dmi_system_id __initdata pci_reboot_dmi_table[] = {
 			DMI_MATCH(DMI_PRODUCT_NAME, "OptiPlex 990"),
 		},
 	},
-	{	/* Handle problems with rebooting on the Precision M6600. */
-		.callback = set_pci_reboot,
-		.ident = "Dell OptiPlex 990",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
-			DMI_MATCH(DMI_PRODUCT_NAME, "Precision M6600"),
-		},
-	},
-	{	/* Handle problems with rebooting on the Dell PowerEdge C6100. */
-		.callback = set_pci_reboot,
-		.ident = "Dell PowerEdge C6100",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
-			DMI_MATCH(DMI_PRODUCT_NAME, "C6100"),
-		},
-	},
-	{	/* Some C6100 machines were shipped with vendor being 'Dell'. */
-		.callback = set_pci_reboot,
-		.ident = "Dell PowerEdge C6100",
-		.matches = {
-			DMI_MATCH(DMI_SYS_VENDOR, "Dell"),
-			DMI_MATCH(DMI_PRODUCT_NAME, "C6100"),
-		},
-	},
 	{ }
 };
 
@@ -635,7 +611,7 @@ static void native_machine_emergency_restart(void)
 			break;
 
 		case BOOT_EFI:
-			if (efi_enabled(EFI_RUNTIME_SERVICES))
+			if (efi_enabled)
 				efi.reset_system(reboot_mode ?
 						 EFI_RESET_WARM :
 						 EFI_RESET_COLD,
@@ -668,13 +644,6 @@ void native_machine_shutdown(void)
 
 	/* The boot cpu is always logical cpu 0 */
 	int reboot_cpu_id = 0;
-#endif
-
-#ifdef CONFIG_X86_IO_APIC
-	disable_IO_APIC();
-#endif
-
-#ifdef CONFIG_SMP
 
 #ifdef CONFIG_X86_32
 	/* See if there has been given a command line override */
@@ -697,6 +666,10 @@ void native_machine_shutdown(void)
 #endif
 
 	lapic_shutdown();
+
+#ifdef CONFIG_X86_IO_APIC
+	disable_IO_APIC();
+#endif
 
 #ifdef CONFIG_HPET_TIMER
 	hpet_disable();

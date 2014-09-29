@@ -77,7 +77,11 @@
 #define RTL_SLOT_TIME_9				9
 #define RTL_SLOT_TIME_20			20
 
-/*related to tcp/ip. */
+/*related with tcp/ip. */
+/*if_ehther.h*/
+#define ETH_P_PAE		0x888E	/*Port Access Entity (IEEE 802.1X) */
+#define ETH_P_IP		0x0800	/*Internet Protocol packet */
+#define ETH_P_ARP		0x0806	/*Address Resolution packet */
 #define SNAP_SIZE		6
 #define PROTOC_TYPE_SIZE	2
 
@@ -1551,7 +1555,6 @@ struct rtl_locks {
 	spinlock_t rf_ps_lock;
 	spinlock_t rf_lock;
 	spinlock_t waitq_lock;
-	spinlock_t usb_lock;
 
 	/*Dual mac*/
 	spinlock_t cck_and_rw_pagea_lock;
@@ -1634,7 +1637,7 @@ struct rtl_priv {
 	   that it points to the data allocated
 	   beyond  this structure like:
 	   rtl_pci_priv or rtl_usb_priv */
-	u8 priv[0] __aligned(sizeof(void *));
+	u8 priv[0];
 };
 
 #define rtl_priv(hw)		(((struct rtl_priv *)(hw)->priv))

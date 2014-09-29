@@ -443,10 +443,12 @@ static const struct file_operations proc_reg_file_ops_no_compat = {
 
 struct inode *proc_get_inode(struct super_block *sb, struct proc_dir_entry *de)
 {
-	struct inode *inode = new_inode_pseudo(sb);
+	struct inode * inode;
 
-	if (inode) {
-		inode->i_ino = de->low_ino;
+	inode = iget_locked(sb, de->low_ino);
+	if (!inode)
+		return NULL;
+	if (inode->i_state & I_NEW) {
 		inode->i_mtime = inode->i_atime = inode->i_ctime = CURRENT_TIME;
 		PROC_I(inode)->fd = 0;
 		PROC_I(inode)->pde = de;
@@ -475,7 +477,9 @@ struct inode *proc_get_inode(struct super_block *sb, struct proc_dir_entry *de)
 				inode->i_fop = de->proc_fops;
 			}
 		}
-	}
+		unlock_new_inode(inode);
+	} else
+	       pde_put(de);
 	return inode;
 }			
 

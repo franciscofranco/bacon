@@ -200,6 +200,8 @@ static int pppol2tp_recvmsg(struct kiocb *iocb, struct socket *sock,
 	if (sk->sk_state & PPPOX_BOUND)
 		goto end;
 
+	msg->msg_namelen = 0;
+
 	err = 0;
 	skb = skb_recv_datagram(sk, flags & ~MSG_DONTWAIT,
 				flags & MSG_DONTWAIT, &err);
@@ -348,21 +350,18 @@ static int pppol2tp_sendmsg(struct kiocb *iocb, struct socket *sock, struct msgh
 	skb_put(skb, 2);
 
 	/* Copy user data into skb */
-	error = memcpy_fromiovec(skb_put(skb, total_len), m->msg_iov,
-				 total_len);
+	error = memcpy_fromiovec(skb->data, m->msg_iov, total_len);
 	if (error < 0) {
 		kfree_skb(skb);
 		goto error_put_sess_tun;
 	}
+	skb_put(skb, total_len);
 
-	local_bh_disable();
 	l2tp_xmit_skb(session, skb, session->hdr_len);
-	local_bh_enable();
 
 	sock_put(ps->tunnel_sock);
-	sock_put(sk);
 
-	return total_len;
+	return error;
 
 error_put_sess_tun:
 	sock_put(ps->tunnel_sock);
@@ -432,9 +431,7 @@ static int pppol2tp_xmit(struct ppp_channel *chan, struct sk_buff *skb)
 	skb->data[0] = ppph[0];
 	skb->data[1] = ppph[1];
 
-	local_bh_disable();
 	l2tp_xmit_skb(session, skb, session->hdr_len);
-	local_bh_enable();
 
 	sock_put(sk_tun);
 	sock_put(sk);
@@ -772,9 +769,9 @@ static int pppol2tp_connect(struct socket *sock, struct sockaddr *uservaddr,
 	session->deref = pppol2tp_session_sock_put;
 
 	/* If PMTU discovery was enabled, use the MTU that was discovered */
-	dst = sk_dst_get(tunnel->sock);
+	dst = sk_dst_get(sk);
 	if (dst != NULL) {
-		u32 pmtu = dst_mtu(__sk_dst_get(tunnel->sock));
+		u32 pmtu = dst_mtu(__sk_dst_get(sk));
 		if (pmtu != 0)
 			session->mtu = session->mru = pmtu -
 				PPPOL2TP_HEADER_OVERHEAD;
@@ -1780,8 +1777,7 @@ static const struct proto_ops pppol2tp_ops = {
 
 static const struct pppox_proto pppol2tp_proto = {
 	.create		= pppol2tp_create,
-	.ioctl		= pppol2tp_ioctl,
-	.owner		= THIS_MODULE,
+	.ioctl		= pppol2tp_ioctl
 };
 
 #ifdef CONFIG_L2TP_V3

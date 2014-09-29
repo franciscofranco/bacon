@@ -21,7 +21,6 @@
 #include <linux/module.h>
 #include <linux/net.h>
 #include <linux/rwsem.h>
-#include <linux/security.h>
 
 struct alg_type_list {
 	const struct af_alg_type *type;
@@ -244,7 +243,6 @@ int af_alg_accept(struct sock *sk, struct socket *newsock)
 
 	sock_init_data(newsock, sk2);
 	sock_graft(sk2, newsock);
-	security_sk_clone(sk, sk2);
 
 	err = type->accept(ask->private, sk2);
 	if (err) {

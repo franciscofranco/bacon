@@ -2201,8 +2201,7 @@ static int handle_tx_event(struct xhci_hcd *xhci,
 		 * last TRB of the previous TD. The command completion handle
 		 * will take care the rest.
 		 */
-		if (!event_seg && (trb_comp_code == COMP_STOP ||
-				   trb_comp_code == COMP_STOP_INVAL)) {
+		if (!event_seg && trb_comp_code == COMP_STOP_INVAL) {
 			ret = 0;
 			goto cleanup;
 		}

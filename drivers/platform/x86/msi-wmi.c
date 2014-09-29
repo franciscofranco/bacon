@@ -176,7 +176,7 @@ static void msi_wmi_notify(u32 value, void *context)
 				pr_debug("Suppressed key event 0x%X - "
 					 "Last press was %lld us ago\n",
 					 key->code, ktime_to_us(diff));
-				goto msi_wmi_notify_exit;
+				return;
 			}
 			last_pressed[key->code - SCANCODE_BASE] = cur;
 
@@ -195,8 +195,6 @@ static void msi_wmi_notify(u32 value, void *context)
 			pr_info("Unknown key pressed - %x\n", eventcode);
 	} else
 		pr_info("Unknown event received\n");
-
-msi_wmi_notify_exit:
 	kfree(response.pointer);
 }
 

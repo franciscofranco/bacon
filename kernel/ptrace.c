@@ -254,8 +254,7 @@ ok:
 	smp_rmb();
 	if (task->mm)
 		dumpable = get_dumpable(task->mm);
-	if (dumpable != SUID_DUMP_USER &&
-	    !ptrace_has_cap(task_user_ns(task), mode))
+	if (!dumpable  && !ptrace_has_cap(task_user_ns(task), mode))
 		return -EPERM;
 
 	return security_ptrace_access_check(task, mode);

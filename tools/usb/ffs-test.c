@@ -116,8 +116,8 @@ static const struct {
 	.header = {
 		.magic = cpu_to_le32(FUNCTIONFS_DESCRIPTORS_MAGIC),
 		.length = cpu_to_le32(sizeof descriptors),
-		.fs_count = cpu_to_le32(3),
-		.hs_count = cpu_to_le32(3),
+		.fs_count = 3,
+		.hs_count = 3,
 	},
 	.fs_descs = {
 		.intf = {
@@ -297,7 +297,7 @@ static void *start_thread_helper(void *arg)
 
 		ret = t->in(t, t->buf, t->buf_size);
 		if (ret > 0) {
-			ret = t->out(t, t->buf, ret);
+			ret = t->out(t, t->buf, t->buf_size);
 			name = out_name;
 			op = "write";
 		} else {

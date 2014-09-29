@@ -108,7 +108,7 @@ struct gsm_mux_net {
  */
 
 struct gsm_msg {
-	struct list_head list;
+	struct gsm_msg *next;
 	u8 addr;		/* DLCI address + flags */
 	u8 ctrl;		/* Control byte + flags */
 	unsigned int len;	/* Length of data block (can be zero) */
@@ -245,7 +245,8 @@ struct gsm_mux {
 	unsigned int tx_bytes;		/* TX data outstanding */
 #define TX_THRESH_HI		8192
 #define TX_THRESH_LO		2048
-	struct list_head tx_list;	/* Pending data packets */
+	struct gsm_msg *tx_head;	/* Pending data packets */
+	struct gsm_msg *tx_tail;
 
 	/* Control messages */
 	struct timer_list t2_timer;	/* Retransmit timer for commands */
@@ -662,7 +663,7 @@ static struct gsm_msg *gsm_data_alloc(struct gsm_mux *gsm, u8 addr, int len,
 	m->len = len;
 	m->addr = addr;
 	m->ctrl = ctrl;
-	INIT_LIST_HEAD(&m->list);
+	m->next = NULL;
 	return m;
 }
 
@@ -672,21 +673,22 @@ static struct gsm_msg *gsm_data_alloc(struct gsm_mux *gsm, u8 addr, int len,
  *
  *	The tty device has called us to indicate that room has appeared in
  *	the transmit queue. Ram more data into the pipe if we have any
- *	If we have been flow-stopped by a CMD_FCOFF, then we can only
- *	send messages on DLCI0 until CMD_FCON
  *
  *	FIXME: lock against link layer control transmissions
  */
 
 static void gsm_data_kick(struct gsm_mux *gsm)
 {
-	struct gsm_msg *msg, *nmsg;
+	struct gsm_msg *msg = gsm->tx_head;
 	int len;
 	int skip_sof = 0;
 
-	list_for_each_entry_safe(msg, nmsg, &gsm->tx_list, list) {
-		if (gsm->constipated && msg->addr)
-			continue;
+	/* FIXME: We need to apply this solely to data messages */
+	if (gsm->constipated)
+		return;
+
+	while (gsm->tx_head != NULL) {
+		msg = gsm->tx_head;
 		if (gsm->encoding != 0) {
 			gsm->txframe[0] = GSM1_SOF;
 			len = gsm_stuff_frame(msg->data,
@@ -709,13 +711,14 @@ static void gsm_data_kick(struct gsm_mux *gsm)
 						len - skip_sof) < 0)
 			break;
 		/* FIXME: Can eliminate one SOF in many more cases */
+		gsm->tx_head = msg->next;
+		if (gsm->tx_head == NULL)
+			gsm->tx_tail = NULL;
 		gsm->tx_bytes -= msg->len;
+		kfree(msg);
 		/* For a burst of frames skip the extra SOF within the
 		   burst */
 		skip_sof = 1;
-
-		list_del(&msg->list);
-		kfree(msg);
 	}
 }
 
@@ -765,7 +768,11 @@ static void __gsm_data_queue(struct gsm_dlci *dlci, struct gsm_msg *msg)
 	msg->data = dp;
 
 	/* Add to the actual output queue */
-	list_add_tail(&msg->list, &gsm->tx_list);
+	if (gsm->tx_tail)
+		gsm->tx_tail->next = msg;
+	else
+		gsm->tx_head = msg;
+	gsm->tx_tail = msg;
 	gsm->tx_bytes += msg->len;
 	gsm_data_kick(gsm);
 }
@@ -868,7 +875,7 @@ static int gsm_dlci_data_output_framed(struct gsm_mux *gsm,
 
 	/* dlci->skb is locked by tx_lock */
 	if (dlci->skb == NULL) {
-		dlci->skb = skb_dequeue_tail(&dlci->skb_list);
+		dlci->skb = skb_dequeue(&dlci->skb_list);
 		if (dlci->skb == NULL)
 			return 0;
 		first = 1;
@@ -879,7 +886,7 @@ static int gsm_dlci_data_output_framed(struct gsm_mux *gsm,
 	if (len > gsm->mtu) {
 		if (dlci->adaption == 3) {
 			/* Over long frame, bin it */
-			dev_kfree_skb_any(dlci->skb);
+			kfree_skb(dlci->skb);
 			dlci->skb = NULL;
 			return 0;
 		}
@@ -892,11 +899,8 @@ static int gsm_dlci_data_output_framed(struct gsm_mux *gsm,
 
 	/* FIXME: need a timer or something to kick this so it can't
 	   get stuck with no work outstanding and no buffer free */
-	if (msg == NULL) {
-		skb_queue_tail(&dlci->skb_list, dlci->skb);
-		dlci->skb = NULL;
+	if (msg == NULL)
 		return -ENOMEM;
-	}
 	dp = msg->data;
 
 	if (dlci->adaption == 4) { /* Interruptible framed (Packetised Data) */
@@ -908,7 +912,7 @@ static int gsm_dlci_data_output_framed(struct gsm_mux *gsm,
 	skb_pull(dlci->skb, len);
 	__gsm_data_queue(dlci, msg);
 	if (last) {
-		dev_kfree_skb_any(dlci->skb);
+		kfree_skb(dlci->skb);
 		dlci->skb = NULL;
 	}
 	return size;
@@ -967,22 +971,16 @@ static void gsm_dlci_data_sweep(struct gsm_mux *gsm)
 static void gsm_dlci_data_kick(struct gsm_dlci *dlci)
 {
 	unsigned long flags;
-	int sweep;
-
-	if (dlci->constipated)
-		return;
 
 	spin_lock_irqsave(&dlci->gsm->tx_lock, flags);
 	/* If we have nothing running then we need to fire up */
-	sweep = (dlci->gsm->tx_bytes < TX_THRESH_LO);
 	if (dlci->gsm->tx_bytes == 0) {
 		if (dlci->net)
 			gsm_dlci_data_output_framed(dlci->gsm, dlci);
 		else
 			gsm_dlci_data_output(dlci->gsm, dlci);
-	}
-	if (sweep)
- 		gsm_dlci_data_sweep(dlci->gsm);
+	} else if (dlci->gsm->tx_bytes < TX_THRESH_LO)
+		gsm_dlci_data_sweep(dlci->gsm);
 	spin_unlock_irqrestore(&dlci->gsm->tx_lock, flags);
 }
 
@@ -1029,7 +1027,6 @@ static void gsm_process_modem(struct tty_struct *tty, struct gsm_dlci *dlci,
 {
 	int  mlines = 0;
 	u8 brk = 0;
-	int fc;
 
 	/* The modem status command can either contain one octet (v.24 signals)
 	   or two octets (v.24 signals + break signals). The length field will
@@ -1041,21 +1038,19 @@ static void gsm_process_modem(struct tty_struct *tty, struct gsm_dlci *dlci,
 	else {
 		brk = modem & 0x7f;
 		modem = (modem >> 7) & 0x7f;
-	}
+	};
 
 	/* Flow control/ready to communicate */
-	fc = (modem & MDM_FC) || !(modem & MDM_RTR);
-	if (fc && !dlci->constipated) {
+	if (modem & MDM_FC) {
 		/* Need to throttle our output on this device */
 		dlci->constipated = 1;
-	} else if (!fc && dlci->constipated) {
+	}
+	if (modem & MDM_RTC) {
+		mlines |= TIOCM_DSR | TIOCM_DTR;
 		dlci->constipated = 0;
 		gsm_dlci_data_kick(dlci);
 	}
-
 	/* Map modem bits */
-	if (modem & MDM_RTC)
-		mlines |= TIOCM_DSR | TIOCM_DTR;
 	if (modem & MDM_RTR)
 		mlines |= TIOCM_RTS | TIOCM_CTS;
 	if (modem & MDM_IC)
@@ -1090,7 +1085,6 @@ static void gsm_control_modem(struct gsm_mux *gsm, u8 *data, int clen)
 {
 	unsigned int addr = 0;
 	unsigned int modem = 0;
-	unsigned int brk = 0;
 	struct gsm_dlci *dlci;
 	int len = clen;
 	u8 *dp = data;
@@ -1116,16 +1110,6 @@ static void gsm_control_modem(struct gsm_mux *gsm, u8 *data, int clen)
 		len--;
 		if (len == 0)
 			return;
-	}
-	len--;
-	if (len > 0) {
-		while (gsm_read_ea(&brk, *dp++) == 0) {
-			len--;
-			if (len == 0)
-				return;
-		}
-		modem <<= 7;
-		modem |= (brk & 0x7f);
 	}
 	tty = tty_port_tty_get(&dlci->port);
 	gsm_process_modem(tty, dlci, modem, clen);
@@ -1206,8 +1190,6 @@ static void gsm_control_message(struct gsm_mux *gsm, unsigned int command,
 							u8 *data, int clen)
 {
 	u8 buf[1];
-	unsigned long flags;
-
 	switch (command) {
 	case CMD_CLD: {
 		struct gsm_dlci *dlci = gsm->dlci[0];
@@ -1224,18 +1206,16 @@ static void gsm_control_message(struct gsm_mux *gsm, unsigned int command,
 		gsm_control_reply(gsm, CMD_TEST, data, clen);
 		break;
 	case CMD_FCON:
-		/* Modem can accept data again */
-		gsm->constipated = 0;
-		gsm_control_reply(gsm, CMD_FCON, NULL, 0);
-		/* Kick the link in case it is idling */
-		spin_lock_irqsave(&gsm->tx_lock, flags);
-		gsm_data_kick(gsm);
-		spin_unlock_irqrestore(&gsm->tx_lock, flags);
-		break;
-	case CMD_FCOFF:
 		/* Modem wants us to STFU */
 		gsm->constipated = 1;
+		gsm_control_reply(gsm, CMD_FCON, NULL, 0);
+		break;
+	case CMD_FCOFF:
+		/* Modem can accept data again */
+		gsm->constipated = 0;
 		gsm_control_reply(gsm, CMD_FCOFF, NULL, 0);
+		/* Kick the link in case it is idling */
+		gsm_data_kick(gsm);
 		break;
 	case CMD_MSC:
 		/* Out of band modem line change indicator for a DLCI */
@@ -1688,7 +1668,7 @@ static void gsm_dlci_free(struct kref *ref)
 	dlci->gsm->dlci[dlci->addr] = NULL;
 	kfifo_free(dlci->fifo);
 	while ((dlci->skb = skb_dequeue(&dlci->skb_list)))
-		dev_kfree_skb(dlci->skb);
+		kfree_skb(dlci->skb);
 	kfree(dlci);
 }
 
@@ -1701,8 +1681,6 @@ static inline void dlci_put(struct gsm_dlci *dlci)
 {
 	kref_put(&dlci->ref, gsm_dlci_free);
 }
-
-static void gsm_destroy_network(struct gsm_dlci *dlci);
 
 /**
  *	gsm_dlci_release		-	release DLCI
@@ -1717,19 +1695,9 @@ static void gsm_dlci_release(struct gsm_dlci *dlci)
 {
 	struct tty_struct *tty = tty_port_tty_get(&dlci->port);
 	if (tty) {
-		mutex_lock(&dlci->mutex);
-		gsm_destroy_network(dlci);
-		mutex_unlock(&dlci->mutex);
-
-		/* tty_vhangup needs the tty_lock, so unlock and
-		   relock after doing the hangup. */
-		tty_unlock();
 		tty_vhangup(tty);
-		tty_lock();
-		tty_port_tty_set(&dlci->port, NULL);
 		tty_kref_put(tty);
 	}
-	dlci->state = DLCI_CLOSED;
 	dlci_put(dlci);
 }
 
@@ -2039,7 +2007,7 @@ void gsm_cleanup_mux(struct gsm_mux *gsm)
 {
 	int i;
 	struct gsm_dlci *dlci = gsm->dlci[0];
-	struct gsm_msg *txq, *ntxq;
+	struct gsm_msg *txq;
 	struct gsm_control *gc;
 
 	gsm->dead = 1;
@@ -2074,9 +2042,11 @@ void gsm_cleanup_mux(struct gsm_mux *gsm)
 		if (gsm->dlci[i])
 			gsm_dlci_release(gsm->dlci[i]);
 	/* Now wipe the queues */
-	list_for_each_entry_safe(txq, ntxq, &gsm->tx_list, list)
+	for (txq = gsm->tx_head; txq != NULL; txq = gsm->tx_head) {
+		gsm->tx_head = txq->next;
 		kfree(txq);
-	INIT_LIST_HEAD(&gsm->tx_list);
+	}
+	gsm->tx_tail = NULL;
 }
 EXPORT_SYMBOL_GPL(gsm_cleanup_mux);
 
@@ -2187,7 +2157,6 @@ struct gsm_mux *gsm_alloc_mux(void)
 	}
 	spin_lock_init(&gsm->lock);
 	kref_init(&gsm->ref);
-	INIT_LIST_HEAD(&gsm->tx_list);
 
 	gsm->t1 = T1;
 	gsm->t2 = T2;
@@ -2304,7 +2273,7 @@ static void gsmld_receive_buf(struct tty_struct *tty, const unsigned char *cp,
 			gsm->error(gsm, *dp, flags);
 			break;
 		default:
-			WARN_ONCE(1, "%s: unknown flag %d\n",
+			WARN_ONCE("%s: unknown flag %d\n",
 			       tty_name(tty, buf), flags);
 			break;
 		}
@@ -2408,12 +2377,12 @@ static void gsmld_write_wakeup(struct tty_struct *tty)
 
 	/* Queue poll */
 	clear_bit(TTY_DO_WRITE_WAKEUP, &tty->flags);
-	spin_lock_irqsave(&gsm->tx_lock, flags);
 	gsm_data_kick(gsm);
 	if (gsm->tx_bytes < TX_THRESH_LO) {
+		spin_lock_irqsave(&gsm->tx_lock, flags);
 		gsm_dlci_data_sweep(gsm);
+		spin_unlock_irqrestore(&gsm->tx_lock, flags);
 	}
-	spin_unlock_irqrestore(&gsm->tx_lock, flags);
 }
 
 /**
@@ -2920,10 +2889,6 @@ static int gsmtty_open(struct tty_struct *tty, struct file *filp)
 	gsm = gsm_mux[mux];
 	if (gsm->dead)
 		return -EL2HLT;
-	/* If DLCI 0 is not yet fully open return an error. This is ok from a locking
-	   perspective as we don't have to worry about this if DLCI0 is lost */
-	if (gsm->dlci[0] && gsm->dlci[0]->state != DLCI_OPEN)
-		return -EL2NSYNC;
 	dlci = gsm->dlci[line];
 	if (dlci == NULL)
 		dlci = gsm_dlci_alloc(gsm, line);
@@ -2954,8 +2919,6 @@ static void gsmtty_close(struct tty_struct *tty, struct file *filp)
 
 	if (dlci == NULL)
 		return;
-	if (dlci->state == DLCI_CLOSED)
-		return;
 	mutex_lock(&dlci->mutex);
 	gsm_destroy_network(dlci);
 	mutex_unlock(&dlci->mutex);
@@ -2974,8 +2937,6 @@ out:
 static void gsmtty_hangup(struct tty_struct *tty)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return;
 	tty_port_hangup(&dlci->port);
 	gsm_dlci_begin_close(dlci);
 }
@@ -2983,12 +2944,9 @@ static void gsmtty_hangup(struct tty_struct *tty)
 static int gsmtty_write(struct tty_struct *tty, const unsigned char *buf,
 								    int len)
 {
-	int sent;
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return -EINVAL;
 	/* Stuff the bytes into the fifo queue */
-	sent = kfifo_in_locked(dlci->fifo, buf, len, &dlci->lock);
+	int sent = kfifo_in_locked(dlci->fifo, buf, len, &dlci->lock);
 	/* Need to kick the channel */
 	gsm_dlci_data_kick(dlci);
 	return sent;
@@ -2997,24 +2955,18 @@ static int gsmtty_write(struct tty_struct *tty, const unsigned char *buf,
 static int gsmtty_write_room(struct tty_struct *tty)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return -EINVAL;
 	return TX_SIZE - kfifo_len(dlci->fifo);
 }
 
 static int gsmtty_chars_in_buffer(struct tty_struct *tty)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return -EINVAL;
 	return kfifo_len(dlci->fifo);
 }
 
 static void gsmtty_flush_buffer(struct tty_struct *tty)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return;
 	/* Caution needed: If we implement reliable transport classes
 	   then the data being transmitted can't simply be junked once
 	   it has first hit the stack. Until then we can just blow it
@@ -3033,8 +2985,6 @@ static void gsmtty_wait_until_sent(struct tty_struct *tty, int timeout)
 static int gsmtty_tiocmget(struct tty_struct *tty)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return -EINVAL;
 	return dlci->modem_rx;
 }
 
@@ -3044,8 +2994,6 @@ static int gsmtty_tiocmset(struct tty_struct *tty,
 	struct gsm_dlci *dlci = tty->driver_data;
 	unsigned int modem_tx = dlci->modem_tx;
 
-	if (dlci->state == DLCI_CLOSED)
-		return -EINVAL;
 	modem_tx &= ~clear;
 	modem_tx |= set;
 
@@ -3064,8 +3012,6 @@ static int gsmtty_ioctl(struct tty_struct *tty,
 	struct gsm_netconfig nc;
 	int index;
 
-	if (dlci->state == DLCI_CLOSED)
-		return -EINVAL;
 	switch (cmd) {
 	case GSMIOC_ENABLE_NET:
 		if (copy_from_user(&nc, (void __user *)arg, sizeof(nc)))
@@ -3092,9 +3038,6 @@ static int gsmtty_ioctl(struct tty_struct *tty,
 
 static void gsmtty_set_termios(struct tty_struct *tty, struct ktermios *old)
 {
-	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return;
 	/* For the moment its fixed. In actual fact the speed information
 	   for the virtual channel can be propogated in both directions by
 	   the RPN control message. This however rapidly gets nasty as we
@@ -3106,8 +3049,6 @@ static void gsmtty_set_termios(struct tty_struct *tty, struct ktermios *old)
 static void gsmtty_throttle(struct tty_struct *tty)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return;
 	if (tty->termios->c_cflag & CRTSCTS)
 		dlci->modem_tx &= ~TIOCM_DTR;
 	dlci->throttled = 1;
@@ -3118,8 +3059,6 @@ static void gsmtty_throttle(struct tty_struct *tty)
 static void gsmtty_unthrottle(struct tty_struct *tty)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
-	if (dlci->state == DLCI_CLOSED)
-		return;
 	if (tty->termios->c_cflag & CRTSCTS)
 		dlci->modem_tx |= TIOCM_DTR;
 	dlci->throttled = 0;
@@ -3131,8 +3070,6 @@ static int gsmtty_break_ctl(struct tty_struct *tty, int state)
 {
 	struct gsm_dlci *dlci = tty->driver_data;
 	int encode = 0;	/* Off */
-	if (dlci->state == DLCI_CLOSED)
-		return -EINVAL;
 
 	if (state == -1)	/* "On indefinitely" - we can't encode this
 				    properly */

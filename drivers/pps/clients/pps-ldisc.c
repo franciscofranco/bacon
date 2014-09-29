@@ -31,7 +31,7 @@
 static void pps_tty_dcd_change(struct tty_struct *tty, unsigned int status,
 				struct pps_event_time *ts)
 {
-	struct pps_device *pps = pps_lookup_dev(tty);
+	struct pps_device *pps = (struct pps_device *)tty->disc_data;
 
 	BUG_ON(pps == NULL);
 
@@ -67,9 +67,9 @@ static int pps_tty_open(struct tty_struct *tty)
 		pr_err("cannot register PPS source \"%s\"\n", info.path);
 		return -ENOMEM;
 	}
-	pps->lookup_cookie = tty;
+	tty->disc_data = pps;
 
-	/* Now open the base class N_TTY ldisc */
+	/* Should open N_TTY ldisc too */
 	ret = alias_n_tty_open(tty);
 	if (ret < 0) {
 		pr_err("cannot open tty ldisc \"%s\"\n", info.path);
@@ -81,6 +81,7 @@ static int pps_tty_open(struct tty_struct *tty)
 	return 0;
 
 err_unregister:
+	tty->disc_data = NULL;
 	pps_unregister_source(pps);
 	return ret;
 }
@@ -89,10 +90,11 @@ static void (*alias_n_tty_close)(struct tty_struct *tty);
 
 static void pps_tty_close(struct tty_struct *tty)
 {
-	struct pps_device *pps = pps_lookup_dev(tty);
+	struct pps_device *pps = (struct pps_device *)tty->disc_data;
 
 	alias_n_tty_close(tty);
 
+	tty->disc_data = NULL;
 	dev_info(pps->dev, "removed\n");
 	pps_unregister_source(pps);
 }

@@ -448,7 +448,6 @@ static void ath9k_htc_tx_process(struct ath9k_htc_priv *priv,
 	struct ieee80211_conf *cur_conf = &priv->hw->conf;
 	bool txok;
 	int slot;
-	int hdrlen, padsize;
 
 	slot = strip_drv_header(priv, skb);
 	if (slot < 0) {
@@ -504,15 +503,6 @@ send_mac80211:
 	spin_unlock_bh(&priv->tx.tx_lock);
 
 	ath9k_htc_tx_clear_slot(priv, slot);
-
-	/* Remove padding before handing frame back to mac80211 */
-	hdrlen = ieee80211_get_hdrlen_from_skb(skb);
-
-	padsize = hdrlen & 3;
-	if (padsize && skb->len > hdrlen + padsize) {
-		memmove(skb->data + padsize, skb->data, hdrlen);
-		skb_pull(skb, padsize);
-	}
 
 	/* Send status to mac80211 */
 	ieee80211_tx_status(priv->hw, skb);
@@ -1077,19 +1067,15 @@ static bool ath9k_rx_prepare(struct ath9k_htc_priv *priv,
 
 	last_rssi = priv->rx.last_rssi;
 
-	if (ieee80211_is_beacon(hdr->frame_control) &&
-	    !is_zero_ether_addr(common->curbssid) &&
-	    compare_ether_addr(hdr->addr3, common->curbssid) == 0) {
-		s8 rssi = rxbuf->rxstatus.rs_rssi;
+	if (likely(last_rssi != ATH_RSSI_DUMMY_MARKER))
+		rxbuf->rxstatus.rs_rssi = ATH_EP_RND(last_rssi,
+						     ATH_RSSI_EP_MULTIPLIER);
 
-		if (likely(last_rssi != ATH_RSSI_DUMMY_MARKER))
-			rssi = ATH_EP_RND(last_rssi, ATH_RSSI_EP_MULTIPLIER);
+	if (rxbuf->rxstatus.rs_rssi < 0)
+		rxbuf->rxstatus.rs_rssi = 0;
 
-		if (rssi < 0)
-			rssi = 0;
-
-		priv->ah->stats.avgbrssi = rssi;
-	}
+	if (ieee80211_is_beacon(fc))
+		priv->ah->stats.avgbrssi = rxbuf->rxstatus.rs_rssi;
 
 	rx_status->mactime = be64_to_cpu(rxbuf->rxstatus.rs_tstamp);
 	rx_status->band = hw->conf.channel->band;

@@ -1274,9 +1274,9 @@ fail:
 	/* we might as well release our claims on endpoints */
 	if (ncm->notify)
 		ncm->notify->driver_data = NULL;
-	if (ncm->port.out_ep)
+	if (ncm->port.out_ep->desc)
 		ncm->port.out_ep->driver_data = NULL;
-	if (ncm->port.in_ep)
+	if (ncm->port.in_ep->desc)
 		ncm->port.in_ep->driver_data = NULL;
 
 	ERROR(cdev, "%s: can't bind, err %d\n", f->name, status);

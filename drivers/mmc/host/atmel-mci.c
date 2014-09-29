@@ -165,7 +165,6 @@ struct atmel_mci {
 	void __iomem		*regs;
 
 	struct scatterlist	*sg;
-	unsigned int		sg_len;
 	unsigned int		pio_offset;
 
 	struct atmel_mci_slot	*cur_slot;
@@ -755,7 +754,6 @@ static u32 atmci_prepare_data(struct atmel_mci *host, struct mmc_data *data)
 	data->error = -EINPROGRESS;
 
 	host->sg = data->sg;
-	host->sg_len = data->sg_len;
 	host->data = data;
 	host->data_chan = NULL;
 
@@ -1022,21 +1020,10 @@ static void atmci_start_request(struct atmel_mci *host,
 	iflags |= ATMCI_CMDRDY;
 	cmd = mrq->cmd;
 	cmdflags = atmci_prepare_command(slot->mmc, cmd);
-
-	/*
-	 * DMA transfer should be started before sending the command to avoid
-	 * unexpected errors especially for read operations in SDIO mode.
-	 * Unfortunately, in PDC mode, command has to be sent before starting
-	 * the transfer.
-	 */
-	if (host->submit_data != &atmci_submit_data_dma)
-		atmci_send_command(host, cmd, cmdflags);
+	atmci_send_command(host, cmd, cmdflags);
 
 	if (data)
 		host->submit_data(host, data);
-
-	if (host->submit_data == &atmci_submit_data_dma)
-		atmci_send_command(host, cmd, cmdflags);
 
 	if (mrq->stop) {
 		host->stop_cmdr = atmci_prepare_command(slot->mmc, mrq->stop);
@@ -1605,8 +1592,7 @@ static void atmci_read_data_pio(struct atmel_mci *host)
 			if (offset == sg->length) {
 				flush_dcache_page(sg_page(sg));
 				host->sg = sg = sg_next(sg);
-				host->sg_len--;
-				if (!sg || !host->sg_len)
+				if (!sg)
 					goto done;
 
 				offset = 0;
@@ -1619,8 +1605,7 @@ static void atmci_read_data_pio(struct atmel_mci *host)
 
 			flush_dcache_page(sg_page(sg));
 			host->sg = sg = sg_next(sg);
-			host->sg_len--;
-			if (!sg || !host->sg_len)
+			if (!sg)
 				goto done;
 
 			offset = 4 - remaining;
@@ -1674,8 +1659,7 @@ static void atmci_write_data_pio(struct atmel_mci *host)
 			nbytes += 4;
 			if (offset == sg->length) {
 				host->sg = sg = sg_next(sg);
-				host->sg_len--;
-				if (!sg || !host->sg_len)
+				if (!sg)
 					goto done;
 
 				offset = 0;
@@ -1689,8 +1673,7 @@ static void atmci_write_data_pio(struct atmel_mci *host)
 			nbytes += remaining;
 
 			host->sg = sg = sg_next(sg);
-			host->sg_len--;
-			if (!sg || !host->sg_len) {
+			if (!sg) {
 				atmci_writel(host, ATMCI_TDR, value);
 				goto done;
 			}
@@ -2207,8 +2190,10 @@ static int __exit atmci_remove(struct platform_device *pdev)
 	atmci_readl(host, ATMCI_SR);
 	clk_disable(host->mck);
 
+#ifdef CONFIG_MMC_ATMELMCI_DMA
 	if (host->dma.chan)
 		dma_release_channel(host->dma.chan);
+#endif
 
 	free_irq(platform_get_irq(pdev, 0), host);
 	iounmap(host->regs);

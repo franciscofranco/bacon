@@ -201,12 +201,13 @@ static int tcf_mirred(struct sk_buff *skb, const struct tc_action *a,
 out:
 	if (err) {
 		m->tcf_qstats.overlimits++;
-		if (m->tcfm_eaction != TCA_EGRESS_MIRROR)
-			retval = TC_ACT_SHOT;
-		else
-			retval = m->tcf_action;
-	} else
+		/* should we be asking for packet to be dropped?
+		 * may make sense for redirect case only
+		 */
+		retval = TC_ACT_SHOT;
+	} else {
 		retval = m->tcf_action;
+	}
 	spin_unlock(&m->tcf_lock);
 
 	return retval;

@@ -446,7 +446,7 @@ int parse_events_add_cache(struct list_head *list, int *idx,
 	for (i = 0; (i < 2) && (op_result[i]); i++) {
 		char *str = op_result[i];
 
-		n += snprintf(name + n, MAX_NAME_LEN - n, "-%s", str);
+		snprintf(name + n, MAX_NAME_LEN - n, "-%s\n", str);
 
 		if (cache_op == -1) {
 			cache_op = parse_aliases(str, hw_cache_op,
