@@ -40,7 +40,7 @@
 
 #define MIN_CPU_UP_US (1000 * USEC_PER_MSEC)
 #define NUM_POSSIBLE_CPUS num_possible_cpus()
-#define HIGH_LOAD (90 * 2)
+#define HIGH_LOAD (90 << 1)
 #define MAX_FREQ_CAP 1036800
 
 struct cpu_stats {
