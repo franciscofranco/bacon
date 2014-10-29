@@ -169,7 +169,14 @@ kgsl_gem_alloc_memory(struct drm_gem_object *obj)
 		return 0;
 
 	if (priv->pagetable == NULL) {
+		/* Hard coded to use A2X device for MSM7X27 and MSM8625
+		 * Others to use A3X device
+		 */
+#if defined(CONFIG_ARCH_MSM7X27) || defined(CONFIG_ARCH_MSM8625)
+		mmu = &kgsl_get_device(KGSL_DEVICE_2D0)->mmu;
+#else
 		mmu = &kgsl_get_device(KGSL_DEVICE_3D0)->mmu;
+#endif
 
 		priv->pagetable = kgsl_mmu_getpagetable(mmu,
 					KGSL_MMU_GLOBAL_PT);
@@ -378,7 +385,6 @@ kgsl_gem_free_object(struct drm_gem_object *obj)
 	kgsl_gem_free_memory(obj);
 	drm_gem_object_release(obj);
 	kfree(obj->driver_private);
-	kfree(obj);
 }
 
 int
@@ -627,7 +633,11 @@ kgsl_gem_create_from_ion_ioctl(struct drm_device *dev, void *data,
 	priv->type = DRM_KGSL_GEM_TYPE_KMEM;
 	list_add(&priv->list, &kgsl_mem_list);
 
+#if defined(CONFIG_ARCH_MSM7X27) || defined(CONFIG_ARCH_MSM8625)
+	mmu = &kgsl_get_device(KGSL_DEVICE_2D0)->mmu;
+#else
 	mmu = &kgsl_get_device(KGSL_DEVICE_3D0)->mmu;
+#endif
 
 	priv->pagetable = kgsl_mmu_getpagetable(mmu, KGSL_MMU_GLOBAL_PT);
 

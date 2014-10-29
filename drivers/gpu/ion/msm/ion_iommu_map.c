@@ -208,8 +208,8 @@ static int ion_iommu_map_iommu(struct ion_iommu_meta *meta,
 	 * biggest entry. To take advantage of bigger mapping sizes both the
 	 * VA and PA addresses have to be aligned to the biggest size.
 	 */
-	if (table->sgl->length > align)
-		align = table->sgl->length;
+	if (sg_dma_len(table->sgl) > align)
+		align = sg_dma_len(table->sgl);
 
 	ret = msm_allocate_iova_address(domain_num, partition_num,
 						data->mapped_size, align,
@@ -285,7 +285,7 @@ static void ion_iommu_heap_unmap_iommu(struct ion_iommu_map *data)
 static struct ion_iommu_map *__ion_iommu_map(struct ion_iommu_meta *meta,
 		int domain_num, int partition_num, unsigned long align,
 		unsigned long iova_length, unsigned long flags,
-		ion_phys_addr_t *iova)
+		unsigned long *iova)
 {
 	struct ion_iommu_map *data;
 	int ret;
@@ -367,7 +367,7 @@ static void ion_iommu_meta_put(struct ion_iommu_meta *meta)
 
 int ion_map_iommu(struct ion_client *client, struct ion_handle *handle,
 			int domain_num, int partition_num, unsigned long align,
-			unsigned long iova_length, ion_phys_addr_t *iova,
+			unsigned long iova_length, unsigned long *iova,
 			unsigned long *buffer_size,
 			unsigned long flags, unsigned long iommu_flags)
 {
@@ -394,7 +394,7 @@ int ion_map_iommu(struct ion_client *client, struct ion_handle *handle,
 		return PTR_ERR(table);
 
 	for_each_sg(table->sgl, sg, table->nents, i)
-		size += sg->length;
+		size += sg_dma_len(sg);
 
 	if (!msm_use_iommu()) {
 		unsigned long pa = sg_dma_address(table->sgl);

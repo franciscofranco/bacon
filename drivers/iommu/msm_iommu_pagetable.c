@@ -24,49 +24,6 @@
 #include <trace/events/kmem.h>
 #include "msm_iommu_pagetable.h"
 
-#define NUM_FL_PTE      4096
-#define NUM_SL_PTE      256
-#define NUM_TEX_CLASS   8
-
-/* First-level page table bits */
-#define FL_BASE_MASK            0xFFFFFC00
-#define FL_TYPE_TABLE           (1 << 0)
-#define FL_TYPE_SECT            (2 << 0)
-#define FL_SUPERSECTION         (1 << 18)
-#define FL_AP0                  (1 << 10)
-#define FL_AP1                  (1 << 11)
-#define FL_AP2                  (1 << 15)
-#define FL_SHARED               (1 << 16)
-#define FL_BUFFERABLE           (1 << 2)
-#define FL_CACHEABLE            (1 << 3)
-#define FL_TEX0                 (1 << 12)
-#define FL_OFFSET(va)           (((va) & 0xFFF00000) >> 20)
-#define FL_NG                   (1 << 17)
-
-/* Second-level page table bits */
-#define SL_BASE_MASK_LARGE      0xFFFF0000
-#define SL_BASE_MASK_SMALL      0xFFFFF000
-#define SL_TYPE_LARGE           (1 << 0)
-#define SL_TYPE_SMALL           (2 << 0)
-#define SL_AP0                  (1 << 4)
-#define SL_AP1                  (2 << 4)
-#define SL_AP2                  (1 << 9)
-#define SL_SHARED               (1 << 10)
-#define SL_BUFFERABLE           (1 << 2)
-#define SL_CACHEABLE            (1 << 3)
-#define SL_TEX0                 (1 << 6)
-#define SL_OFFSET(va)           (((va) & 0xFF000) >> 12)
-#define SL_NG                   (1 << 11)
-
-/* Memory type and cache policy attributes */
-#define MT_SO                   0
-#define MT_DEV                  1
-#define MT_NORMAL               2
-#define CP_NONCACHED            0
-#define CP_WB_WA                1
-#define CP_WT                   2
-#define CP_WB_NWA               3
-
 /* Sharability attributes of MSM IOMMU mappings */
 #define MSM_IOMMU_ATTR_NON_SH		0x0
 #define MSM_IOMMU_ATTR_SH		0x4
@@ -78,13 +35,6 @@
 #define MSM_IOMMU_ATTR_CACHED_WT	0x3
 
 static int msm_iommu_tex_class[4];
-
-/* TEX Remap Registers */
-#define NMRR_ICP(nmrr, n) (((nmrr) & (3 << ((n) * 2))) >> ((n) * 2))
-#define NMRR_OCP(nmrr, n) (((nmrr) & (3 << ((n) * 2 + 16))) >> ((n) * 2 + 16))
-
-#define PRRR_NOS(prrr, n) ((prrr) & (1 << ((n) + 24)) ? 1 : 0)
-#define PRRR_MT(prrr, n)  ((((prrr) & (3 << ((n) * 2))) >> ((n) * 2)))
 
 static inline void clean_pte(unsigned long *start, unsigned long *end,
 				int redirect)
@@ -334,8 +284,79 @@ fail:
 size_t msm_iommu_pagetable_unmap(struct msm_iommu_pt *pt, unsigned long va,
 				size_t len)
 {
-	msm_iommu_pagetable_unmap_range(pt, va, len);
-	return len;
+	unsigned long *fl_pte;
+	unsigned long fl_offset;
+	unsigned long *sl_table;
+	unsigned long *sl_pte;
+	unsigned long sl_offset;
+	int i, ret = 0;
+
+	if (len != SZ_16M && len != SZ_1M &&
+	    len != SZ_64K && len != SZ_4K) {
+		pr_debug("Bad length: %d\n", len);
+		ret = -EINVAL;
+		goto fail;
+	}
+
+	if (!pt->fl_table) {
+		pr_debug("Null page table\n");
+		ret = -EINVAL;
+		goto fail;
+	}
+
+	fl_offset = FL_OFFSET(va);		/* Upper 12 bits */
+	fl_pte = pt->fl_table + fl_offset;	/* int pointers, 4 bytes */
+
+	if (*fl_pte == 0) {
+		pr_debug("First level PTE is 0\n");
+		ret = -ENODEV;
+		goto fail;
+	}
+
+	/* Unmap supersection */
+	if (len == SZ_16M) {
+		for (i = 0; i < 16; i++)
+			*(fl_pte+i) = 0;
+
+		clean_pte(fl_pte, fl_pte + 16, pt->redirect);
+	}
+
+	if (len == SZ_1M) {
+		*fl_pte = 0;
+		clean_pte(fl_pte, fl_pte + 1, pt->redirect);
+	}
+
+	sl_table = (unsigned long *) __va(((*fl_pte) & FL_BASE_MASK));
+	sl_offset = SL_OFFSET(va);
+	sl_pte = sl_table + sl_offset;
+
+	if (len == SZ_64K) {
+		for (i = 0; i < 16; i++)
+			*(sl_pte+i) = 0;
+
+		clean_pte(sl_pte, sl_pte + 16, pt->redirect);
+	}
+
+	if (len == SZ_4K) {
+		*sl_pte = 0;
+		clean_pte(sl_pte, sl_pte + 1, pt->redirect);
+	}
+
+	if (len == SZ_4K || len == SZ_64K) {
+		int used = 0;
+
+		for (i = 0; i < NUM_SL_PTE; i++)
+			if (sl_table[i])
+				used = 1;
+		if (!used) {
+			free_page((unsigned long)sl_table);
+			*fl_pte = 0;
+			clean_pte(fl_pte, fl_pte + 1, pt->redirect);
+		}
+	}
+
+fail:
+	return ret;
 }
 
 static phys_addr_t get_phys_addr(struct scatterlist *sg)

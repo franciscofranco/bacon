@@ -1,4 +1,4 @@
-/* Copyright (c) 2012-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2012-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -16,19 +16,17 @@
 #define CTX_SHIFT  12
 #define CTX_OFFSET 0x8000
 
-#define CTX_REG(reg, base, ctx) \
-	((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT))
-#define GLB_REG(reg, base) \
-	((base) + (reg))
-
-#define GET_GLOBAL_REG(reg, base) (readl_relaxed(GLB_REG(reg, base)))
-#define GET_CTX_REG(reg, base, ctx) (readl_relaxed(CTX_REG(reg, base, ctx)))
-#define GET_CTX_REG_L(reg, base, ctx) (readll_relaxed(CTX_REG(reg, base, ctx)))
+#define GET_GLOBAL_REG(reg, base) (readl_relaxed((base) + (reg)))
+#define GET_CTX_REG(reg, base, ctx) \
+	(readl_relaxed((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT)))
+#define GET_CTX_REG_L(reg, base, ctx) \
+	(readll_relaxed((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT)))
 
 #define SET_GLOBAL_REG(reg, base, val)	writel_relaxed((val), ((base) + (reg)))
 
 #define SET_CTX_REG(reg, base, ctx, val) \
-	writel_relaxed((val), (CTX_REG(reg, base, ctx)))
+	writel_relaxed((val), \
+		((base) + CTX_OFFSET + (reg) + ((ctx) << CTX_SHIFT)))
 
 /* Wrappers for numbered registers */
 #define SET_GLOBAL_REG_N(b, n, r, v) SET_GLOBAL_REG((b), ((r) + (n << 2)), (v))
@@ -97,8 +95,6 @@ do { \
 #define SET_NSCR0(b, v)          SET_GLOBAL_REG(NSCR0, (b), (v))
 #define SET_NSCR2(b, v)          SET_GLOBAL_REG(NSCR2, (b), (v))
 #define SET_NSACR(b, v)          SET_GLOBAL_REG(NSACR, (b), (v))
-#define SET_NSGFAR(b, v)         SET_GLOBAL_REG(NSGFAR, (b), (v))
-#define SET_NSGFSRRESTORE(b, v)  SET_GLOBAL_REG(NSGFSRRESTORE, (b), (v))
 #define SET_PMCR(b, v)           SET_GLOBAL_REG(PMCR, (b), (v))
 #define SET_SMR_N(b, N, v)       SET_GLOBAL_REG_N(SMR, N, (b), (v))
 #define SET_S2CR_N(b, N, v)      SET_GLOBAL_REG_N(S2CR, N, (b), (v))
@@ -152,11 +148,6 @@ do { \
 				SET_GLOBAL_FIELD(b, MICRO_MMU_CTRL, HALT_REQ, v)
 #define GET_MICRO_MMU_CTRL_IDLE(b) \
 				GET_GLOBAL_FIELD(b, MICRO_MMU_CTRL, IDLE)
-#define SET_MICRO_MMU_CTRL_RESERVED(b, v) \
-				SET_GLOBAL_FIELD(b, MICRO_MMU_CTRL, RESERVED, v)
-
-#define MMU_CTRL_IDLE (MICRO_MMU_CTRL_IDLE_MASK << MICRO_MMU_CTRL_IDLE_SHIFT)
-
 #define SET_PREDICTIONDIS0(b, v) SET_GLOBAL_REG(PREDICTIONDIS0, (b), (v))
 #define SET_PREDICTIONDIS1(b, v) SET_GLOBAL_REG(PREDICTIONDIS1, (b), (v))
 #define SET_S1L1BFBLP0(b, v)     SET_GLOBAL_REG(S1L1BFBLP0, (b), (v))
@@ -226,34 +217,26 @@ do { \
 #define GET_ATSR(b, c)           GET_CTX_REG(CB_ATSR, (b), (c))
 
 /* Global Register field setters / getters */
-/* Configuration Register: CR0/NSCR0 */
+/* Configuration Register: CR0 */
 #define SET_CR0_NSCFG(b, v)        SET_GLOBAL_FIELD(b, CR0, NSCFG, v)
 #define SET_CR0_WACFG(b, v)        SET_GLOBAL_FIELD(b, CR0, WACFG, v)
 #define SET_CR0_RACFG(b, v)        SET_GLOBAL_FIELD(b, CR0, RACFG, v)
 #define SET_CR0_SHCFG(b, v)        SET_GLOBAL_FIELD(b, CR0, SHCFG, v)
 #define SET_CR0_SMCFCFG(b, v)      SET_GLOBAL_FIELD(b, CR0, SMCFCFG, v)
-#define SET_NSCR0_SMCFCFG(b, v)    SET_GLOBAL_FIELD(b, NSCR0, SMCFCFG, v)
 #define SET_CR0_MTCFG(b, v)        SET_GLOBAL_FIELD(b, CR0, MTCFG, v)
 #define SET_CR0_BSU(b, v)          SET_GLOBAL_FIELD(b, CR0, BSU, v)
 #define SET_CR0_FB(b, v)           SET_GLOBAL_FIELD(b, CR0, FB, v)
 #define SET_CR0_PTM(b, v)          SET_GLOBAL_FIELD(b, CR0, PTM, v)
 #define SET_CR0_VMIDPNE(b, v)      SET_GLOBAL_FIELD(b, CR0, VMIDPNE, v)
 #define SET_CR0_USFCFG(b, v)       SET_GLOBAL_FIELD(b, CR0, USFCFG, v)
-#define SET_NSCR0_USFCFG(b, v)     SET_GLOBAL_FIELD(b, NSCR0, USFCFG, v)
 #define SET_CR0_GSE(b, v)          SET_GLOBAL_FIELD(b, CR0, GSE, v)
 #define SET_CR0_STALLD(b, v)       SET_GLOBAL_FIELD(b, CR0, STALLD, v)
-#define SET_NSCR0_STALLD(b, v)     SET_GLOBAL_FIELD(b, NSCR0, STALLD, v)
 #define SET_CR0_TRANSIENTCFG(b, v) SET_GLOBAL_FIELD(b, CR0, TRANSIENTCFG, v)
 #define SET_CR0_GCFGFIE(b, v)      SET_GLOBAL_FIELD(b, CR0, GCFGFIE, v)
-#define SET_NSCR0_GCFGFIE(b, v)    SET_GLOBAL_FIELD(b, NSCR0, GCFGFIE, v)
 #define SET_CR0_GCFGFRE(b, v)      SET_GLOBAL_FIELD(b, CR0, GCFGFRE, v)
-#define SET_NSCR0_GCFGFRE(b, v)    SET_GLOBAL_FIELD(b, NSCR0, GCFGFRE, v)
 #define SET_CR0_GFIE(b, v)         SET_GLOBAL_FIELD(b, CR0, GFIE, v)
-#define SET_NSCR0_GFIE(b, v)       SET_GLOBAL_FIELD(b, NSCR0, GFIE, v)
 #define SET_CR0_GFRE(b, v)         SET_GLOBAL_FIELD(b, CR0, GFRE, v)
-#define SET_NSCR0_GFRE(b, v)       SET_GLOBAL_FIELD(b, NSCR0, GFRE, v)
 #define SET_CR0_CLIENTPD(b, v)     SET_GLOBAL_FIELD(b, CR0, CLIENTPD, v)
-#define SET_NSCR0_CLIENTPD(b, v)   SET_GLOBAL_FIELD(b, NSCR0, CLIENTPD, v)
 
 #define GET_CR0_NSCFG(b)           GET_GLOBAL_FIELD(b, CR0, NSCFG)
 #define GET_CR0_WACFG(b)           GET_GLOBAL_FIELD(b, CR0, WACFG)
@@ -968,8 +951,6 @@ do { \
 #define NSCR0		(0x0400)
 #define NSCR2		(0x0408)
 #define NSACR		(0x0410)
-#define NSGFAR		(0x0440)
-#define NSGFSRRESTORE	(0x044C)
 #define SMR		(0x0800)
 #define S2CR		(0x0C00)
 
@@ -1422,7 +1403,6 @@ do { \
 #define CR0_RACFG_MASK          0x03
 #define CR0_SHCFG_MASK          0x03
 #define CR0_SMCFCFG_MASK        0x01
-#define NSCR0_SMCFCFG_MASK      0x01
 #define CR0_MTCFG_MASK          0x01
 #define CR0_MEMATTR_MASK        0x0F
 #define CR0_BSU_MASK            0x03
@@ -1430,21 +1410,14 @@ do { \
 #define CR0_PTM_MASK            0x01
 #define CR0_VMIDPNE_MASK        0x01
 #define CR0_USFCFG_MASK         0x01
-#define NSCR0_USFCFG_MASK       0x01
 #define CR0_GSE_MASK            0x01
 #define CR0_STALLD_MASK         0x01
-#define NSCR0_STALLD_MASK       0x01
 #define CR0_TRANSIENTCFG_MASK   0x03
 #define CR0_GCFGFIE_MASK        0x01
-#define NSCR0_GCFGFIE_MASK      0x01
 #define CR0_GCFGFRE_MASK        0x01
-#define NSCR0_GCFGFRE_MASK      0x01
 #define CR0_GFIE_MASK           0x01
-#define NSCR0_GFIE_MASK         0x01
 #define CR0_GFRE_MASK           0x01
-#define NSCR0_GFRE_MASK         0x01
 #define CR0_CLIENTPD_MASK       0x01
-#define NSCR0_CLIENTPD_MASK     0x01
 
 /* Configuration Register 2 */
 #define CR2_BPVMID_MASK         0xFF
@@ -1605,7 +1578,6 @@ do { \
 #define CBFRSYNRA_SID_MASK      0x7FFF
 
 /* Implementation defined register space masks */
-#define MICRO_MMU_CTRL_RESERVED_MASK          0x03
 #define MICRO_MMU_CTRL_HALT_REQ_MASK          0x01
 #define MICRO_MMU_CTRL_IDLE_MASK              0x01
 
@@ -1796,7 +1768,6 @@ do { \
 #define CR0_RACFG_SHIFT            24
 #define CR0_SHCFG_SHIFT            22
 #define CR0_SMCFCFG_SHIFT          21
-#define NSCR0_SMCFCFG_SHIFT        21
 #define CR0_MTCFG_SHIFT            20
 #define CR0_MEMATTR_SHIFT          16
 #define CR0_BSU_SHIFT              14
@@ -1804,21 +1775,14 @@ do { \
 #define CR0_PTM_SHIFT              12
 #define CR0_VMIDPNE_SHIFT          11
 #define CR0_USFCFG_SHIFT           10
-#define NSCR0_USFCFG_SHIFT         10
 #define CR0_GSE_SHIFT              9
 #define CR0_STALLD_SHIFT           8
-#define NSCR0_STALLD_SHIFT         8
 #define CR0_TRANSIENTCFG_SHIFT     6
 #define CR0_GCFGFIE_SHIFT          5
-#define NSCR0_GCFGFIE_SHIFT        5
 #define CR0_GCFGFRE_SHIFT          4
-#define NSCR0_GCFGFRE_SHIFT        4
 #define CR0_GFIE_SHIFT             2
-#define NSCR0_GFIE_SHIFT           2
 #define CR0_GFRE_SHIFT             1
-#define NSCR0_GFRE_SHIFT           1
 #define CR0_CLIENTPD_SHIFT         0
-#define NSCR0_CLIENTPD_SHIFT       0
 
 /* Configuration Register: CR2 */
 #define CR2_BPVMID_SHIFT           0
@@ -1977,7 +1941,6 @@ do { \
 #define CBFRSYNRA_SID_SHIFT        0
 
 /* Implementation defined register space shift */
-#define MICRO_MMU_CTRL_RESERVED_SHIFT         0x00
 #define MICRO_MMU_CTRL_HALT_REQ_SHIFT         0x02
 #define MICRO_MMU_CTRL_IDLE_SHIFT             0x03
 

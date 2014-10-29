@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -19,7 +19,11 @@
  * These defines control the address range for allocations that
  * are mapped into all pagetables.
  */
+#ifndef CONFIG_MSM_KGSL_CFF_DUMP
 #define KGSL_IOMMU_GLOBAL_MEM_BASE	0xf8000000
+#else
+#define KGSL_IOMMU_GLOBAL_MEM_BASE      (0x09F00000 - SZ_4M)
+#endif
 #define KGSL_IOMMU_GLOBAL_MEM_SIZE	SZ_4M
 
 #define KGSL_MMU_ALIGN_MASK     (~((1 << PAGE_SHIFT) - 1))
@@ -144,12 +148,11 @@ struct kgsl_mmu_ops {
 	void (*mmu_pagefault_resume)
 			(struct kgsl_mmu *mmu);
 	void (*mmu_disable_clk_on_ts)
-		(struct kgsl_mmu *mmu,
-		uint32_t ts, int ctx_id);
+		(struct kgsl_mmu *mmu, uint32_t ts, bool ts_valid);
 	int (*mmu_enable_clk)
 		(struct kgsl_mmu *mmu, int ctx_id);
 	void (*mmu_disable_clk)
-		(struct kgsl_mmu *mmu, int ctx_id);
+		(struct kgsl_mmu *mmu);
 	phys_addr_t (*mmu_get_default_ttbr0)(struct kgsl_mmu *mmu,
 				unsigned int unit_id,
 				enum kgsl_iommu_context_id ctx_id);
@@ -174,7 +177,6 @@ struct kgsl_mmu_ops {
 	unsigned int (*mmu_sync_unlock)
 			(struct kgsl_mmu *mmu, unsigned int *cmds);
 	int (*mmu_hw_halt_supported)(struct kgsl_mmu *mmu, int iommu_unit_num);
-	int (*mmu_set_pf_policy)(struct kgsl_mmu *mmu, unsigned int pf_policy);
 };
 
 struct kgsl_mmu_pt_ops {
@@ -328,18 +330,17 @@ static inline int kgsl_mmu_enable_clk(struct kgsl_mmu *mmu,
 		return 0;
 }
 
-static inline void kgsl_mmu_disable_clk(struct kgsl_mmu *mmu, int ctx_id)
+static inline void kgsl_mmu_disable_clk(struct kgsl_mmu *mmu)
 {
 	if (mmu->mmu_ops && mmu->mmu_ops->mmu_disable_clk)
-		mmu->mmu_ops->mmu_disable_clk(mmu, ctx_id);
+		mmu->mmu_ops->mmu_disable_clk(mmu);
 }
 
 static inline void kgsl_mmu_disable_clk_on_ts(struct kgsl_mmu *mmu,
-						unsigned int ts,
-						int ctx_id)
+						unsigned int ts, bool ts_valid)
 {
 	if (mmu->mmu_ops && mmu->mmu_ops->mmu_disable_clk_on_ts)
-		mmu->mmu_ops->mmu_disable_clk_on_ts(mmu, ts, ctx_id);
+		mmu->mmu_ops->mmu_disable_clk_on_ts(mmu, ts, ts_valid);
 }
 
 static inline unsigned int kgsl_mmu_get_int_mask(void)
@@ -476,15 +477,6 @@ static inline int kgsl_mmu_sync_unlock(struct kgsl_mmu *mmu,
 	if ((mmu->flags & KGSL_MMU_FLAGS_IOMMU_SYNC) &&
 		mmu->mmu_ops && mmu->mmu_ops->mmu_sync_unlock)
 		return mmu->mmu_ops->mmu_sync_unlock(mmu, cmds);
-	else
-		return 0;
-}
-
-static inline int kgsl_mmu_set_pagefault_policy(struct kgsl_mmu *mmu,
-						unsigned int pf_policy)
-{
-	if (mmu->mmu_ops && mmu->mmu_ops->mmu_set_pf_policy)
-		return mmu->mmu_ops->mmu_set_pf_policy(mmu, pf_policy);
 	else
 		return 0;
 }
