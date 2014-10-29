@@ -28,6 +28,9 @@
 #elif defined(CONFIG_MACH_MSM8974_HAMMERHEAD)
 #define KEXEC_HB_PAGE_ADDR		UL(0x10100000)
 #define KEXEC_HB_KERNEL_LOC		UL(0x3208000)
+#elif defined(CONFIG_MACH_OPPO_MSM8974)
+#define KEXEC_HB_PAGE_ADDR UL(0x2F600000)
+#define KEXEC_HB_KERNEL_LOC UL(0x22000000)
 #else
 #error "Adress for kexec hardboot page not defined"
 #endif
