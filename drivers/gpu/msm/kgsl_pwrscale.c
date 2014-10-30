@@ -19,6 +19,7 @@
 #include "kgsl.h"
 #include "kgsl_pwrscale.h"
 #include "kgsl_device.h"
+#include "kgsl_trace.h"
 
 struct kgsl_pwrscale_attribute {
 	struct attribute attr;
@@ -375,3 +376,47 @@ void kgsl_pwrscale_close(struct kgsl_device *device)
 	kobject_put(&device->pwrscale_kobj);
 }
 EXPORT_SYMBOL(kgsl_pwrscale_close);
+
+/*
+ * kgsl_devfreq_add_notifier - add a fine grained notifier.
+ * @dev: The device
+ * @nb: Notifier block that will recieve updates.
+ *
+ * Add a notifier to recieve ADRENO_DEVFREQ_NOTIFY_* events
+ * from the device.
+ */
+int kgsl_devfreq_add_notifier(struct device *dev, struct notifier_block *nb)
+{
+	struct kgsl_device *device = dev_get_drvdata(dev);
+
+	if (device == NULL)
+		return -ENODEV;
+
+	if (nb == NULL)
+		return -EINVAL;
+
+	return srcu_notifier_chain_register(&device, nb);
+}
+
+
+/*
+ * kgsl_devfreq_del_notifier - remove a fine grained notifier.
+ * @dev: The device
+ * @nb: The notifier block.
+ *
+ * Remove a notifier registered with kgsl_devfreq_add_notifier().
+ */
+int kgsl_devfreq_del_notifier(struct device *dev, struct notifier_block *nb)
+{
+	struct kgsl_device *device = dev_get_drvdata(dev);
+
+	if (device == NULL)
+		return -ENODEV;
+
+	if (nb == NULL)
+		return -EINVAL;
+
+	return srcu_notifier_chain_unregister(&device, nb);
+}
+EXPORT_SYMBOL(kgsl_devfreq_del_notifier);
+
