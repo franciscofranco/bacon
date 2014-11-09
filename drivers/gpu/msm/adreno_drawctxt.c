@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -22,12 +22,144 @@
 
 #define KGSL_INIT_REFTIMESTAMP		0x7FFFFFFF
 
+/* quad for copying GMEM to context shadow */
+#define QUAD_LEN 12
+#define QUAD_RESTORE_LEN 14
+
+static unsigned int gmem_copy_quad[QUAD_LEN] = {
+	0x00000000, 0x00000000, 0x3f800000,
+	0x00000000, 0x00000000, 0x3f800000,
+	0x00000000, 0x00000000, 0x3f800000,
+	0x00000000, 0x00000000, 0x3f800000
+};
+
+static unsigned int gmem_restore_quad[QUAD_RESTORE_LEN] = {
+	0x00000000, 0x3f800000, 0x3f800000,
+	0x00000000, 0x00000000, 0x00000000,
+	0x3f800000, 0x00000000, 0x00000000,
+	0x3f800000, 0x00000000, 0x00000000,
+	0x3f800000, 0x3f800000,
+};
+
+#define TEXCOORD_LEN 8
+
+static unsigned int gmem_copy_texcoord[TEXCOORD_LEN] = {
+	0x00000000, 0x3f800000,
+	0x3f800000, 0x3f800000,
+	0x00000000, 0x00000000,
+	0x3f800000, 0x00000000
+};
+
+/*
+ * Helper functions
+ * These are global helper functions used by the GPUs during context switch
+ */
+
+/**
+ * uint2float - convert a uint to IEEE754 single precision float
+ * @ uintval - value to convert
+ */
+
+unsigned int uint2float(unsigned int uintval)
+{
+	unsigned int exp, frac = 0;
+
+	if (uintval == 0)
+		return 0;
+
+	exp = ilog2(uintval);
+
+	/* Calculate fraction */
+	if (23 > exp)
+		frac = (uintval & (~(1 << exp))) << (23 - exp);
+
+	/* Exp is biased by 127 and shifted 23 bits */
+	exp = (exp + 127) << 23;
+
+	return exp | frac;
+}
+
+static void set_gmem_copy_quad(struct gmem_shadow_t *shadow)
+{
+	/* set vertex buffer values */
+	gmem_copy_quad[1] = uint2float(shadow->height);
+	gmem_copy_quad[3] = uint2float(shadow->width);
+	gmem_copy_quad[4] = uint2float(shadow->height);
+	gmem_copy_quad[9] = uint2float(shadow->width);
+
+	gmem_restore_quad[5] = uint2float(shadow->height);
+	gmem_restore_quad[7] = uint2float(shadow->width);
+
+	memcpy(shadow->quad_vertices.hostptr, gmem_copy_quad, QUAD_LEN << 2);
+	memcpy(shadow->quad_vertices_restore.hostptr, gmem_restore_quad,
+		QUAD_RESTORE_LEN << 2);
+
+	memcpy(shadow->quad_texcoords.hostptr, gmem_copy_texcoord,
+		TEXCOORD_LEN << 2);
+}
+
+/**
+ * build_quad_vtxbuff - Create a quad for saving/restoring GMEM
+ * @ context - Pointer to the context being created
+ * @ shadow - Pointer to the GMEM shadow structure
+ * @ incmd - Pointer to pointer to the temporary command buffer
+ */
+
+/* quad for saving/restoring gmem */
+void build_quad_vtxbuff(struct adreno_context *drawctxt,
+		struct gmem_shadow_t *shadow, unsigned int **incmd)
+{
+	 unsigned int *cmd = *incmd;
+
+	/* quad vertex buffer location (in GPU space) */
+	shadow->quad_vertices.hostptr = cmd;
+	shadow->quad_vertices.gpuaddr = virt2gpu(cmd, &drawctxt->gpustate);
+
+	cmd += QUAD_LEN;
+
+	/* Used by A3XX, but define for both to make the code easier */
+	shadow->quad_vertices_restore.hostptr = cmd;
+	shadow->quad_vertices_restore.gpuaddr =
+		virt2gpu(cmd, &drawctxt->gpustate);
+
+	cmd += QUAD_RESTORE_LEN;
+
+	/* tex coord buffer location (in GPU space) */
+	shadow->quad_texcoords.hostptr = cmd;
+	shadow->quad_texcoords.gpuaddr = virt2gpu(cmd, &drawctxt->gpustate);
+
+	cmd += TEXCOORD_LEN;
+
+	set_gmem_copy_quad(shadow);
+	*incmd = cmd;
+}
+
 static void wait_callback(struct kgsl_device *device, void *priv, u32 id,
 		u32 timestamp, u32 type)
 {
 	struct adreno_context *drawctxt = priv;
 	wake_up_all(&drawctxt->waiting);
 }
+
+#define adreno_wait_event_interruptible_timeout(wq, condition, timeout, io)   \
+({                                                                            \
+	long __ret = timeout;                                                 \
+	if (io)                                                               \
+		__wait_io_event_interruptible_timeout(wq, condition, __ret);  \
+	else                                                                  \
+		__wait_event_interruptible_timeout(wq, condition, __ret);     \
+	__ret;                                                                \
+})
+
+#define adreno_wait_event_interruptible(wq, condition, io)                    \
+({                                                                            \
+	long __ret;                                                           \
+	if (io)                                                               \
+		__wait_io_event_interruptible(wq, condition, __ret);          \
+	else                                                                  \
+		__wait_event_interruptible(wq, condition, __ret);             \
+	__ret;                                                                \
+})
 
 static int _check_context_timestamp(struct kgsl_device *device,
 		struct adreno_context *drawctxt, unsigned int timestamp)
@@ -39,9 +171,9 @@ static int _check_context_timestamp(struct kgsl_device *device,
 		drawctxt->state != ADRENO_CONTEXT_STATE_ACTIVE)
 		return 1;
 
-	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
+	mutex_lock(&device->mutex);
 	ret = kgsl_check_timestamp(device, &drawctxt->base, timestamp);
-	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
+	mutex_unlock(&device->mutex);
 
 	return ret;
 }
@@ -61,10 +193,11 @@ int adreno_drawctxt_wait(struct adreno_device *adreno_dev,
 		struct kgsl_context *context,
 		uint32_t timestamp, unsigned int timeout)
 {
+	static unsigned int io_cnt;
 	struct kgsl_device *device = &adreno_dev->dev;
+	struct kgsl_pwrctrl *pwr = &device->pwrctrl;
 	struct adreno_context *drawctxt = ADRENO_CONTEXT(context);
-	int ret;
-	long ret_temp;
+	int ret, io;
 
 	if (kgsl_context_detached(context))
 		return -EINVAL;
@@ -82,30 +215,37 @@ int adreno_drawctxt_wait(struct adreno_device *adreno_dev,
 	if (ret)
 		goto done;
 
-	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
+	/*
+	 * For proper power accounting sometimes we need to call
+	 * io_wait_interruptible_timeout and sometimes we need to call
+	 * plain old wait_interruptible_timeout. We call the regular
+	 * timeout N times out of 100, where N is a number specified by
+	 * the current power level
+	 */
+
+	io_cnt = (io_cnt + 1) % 100;
+	io = (io_cnt < pwr->pwrlevels[pwr->active_pwrlevel].io_fraction)
+		? 0 : 1;
+
+	mutex_unlock(&device->mutex);
 
 	if (timeout) {
-		long ret_temp;
-		ret_temp = msecs_to_jiffies(timeout);
-		__wait_event_interruptible_timeout(
+		ret = (int) adreno_wait_event_interruptible_timeout(
 			drawctxt->waiting,
 			_check_context_timestamp(device, drawctxt, timestamp),
-			ret_temp);
+			msecs_to_jiffies(timeout), io);
 
-		if (ret_temp == 0)
+		if (ret == 0)
 			ret = -ETIMEDOUT;
-		else if (ret_temp > 0)
+		else if (ret > 0)
 			ret = 0;
-		else
-			ret = (int) ret_temp;
 	} else {
-		__wait_event_interruptible(drawctxt->waiting,
+		ret = (int) adreno_wait_event_interruptible(drawctxt->waiting,
 			_check_context_timestamp(device, drawctxt, timestamp),
-				ret_temp);
-		ret = (int)ret_temp;
+				io);
 	}
 
-	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
+	mutex_lock(&device->mutex);
 
 	/* -EDEADLK if the context was invalidated while we were waiting */
 	if (drawctxt->state == ADRENO_CONTEXT_STATE_INVALID)
@@ -174,7 +314,7 @@ int adreno_drawctxt_wait_global(struct adreno_device *adreno_dev,
 		goto done;
 	}
 
-	kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
+	mutex_unlock(&device->mutex);
 
 	if (timeout) {
 		ret = (int) wait_event_timeout(drawctxt->waiting,
@@ -190,7 +330,7 @@ int adreno_drawctxt_wait_global(struct adreno_device *adreno_dev,
 			_check_global_timestamp(device, drawctxt, timestamp));
 	}
 
-	kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
+	mutex_lock(&device->mutex);
 
 	if (ret)
 		kgsl_cancel_events_timestamp(device, NULL, timestamp);
@@ -212,8 +352,6 @@ void adreno_drawctxt_invalidate(struct kgsl_device *device,
 		struct kgsl_context *context)
 {
 	struct adreno_context *drawctxt = ADRENO_CONTEXT(context);
-
-	trace_adreno_drawctxt_invalidate(drawctxt);
 
 	drawctxt->state = ADRENO_CONTEXT_STATE_INVALID;
 
@@ -241,10 +379,10 @@ void adreno_drawctxt_invalidate(struct kgsl_device *device,
 
 		mutex_unlock(&drawctxt->mutex);
 
-		kgsl_mutex_lock(&device->mutex, &device->mutex_owner);
+		mutex_lock(&device->mutex);
 		kgsl_cancel_events_timestamp(device, context,
 			cmdbatch->timestamp);
-		kgsl_mutex_unlock(&device->mutex, &device->mutex_owner);
+		mutex_unlock(&device->mutex);
 
 		kgsl_cmdbatch_destroy(cmdbatch);
 		mutex_lock(&drawctxt->mutex);
@@ -284,6 +422,7 @@ adreno_drawctxt_create(struct kgsl_device_private *dev_priv,
 		return ERR_PTR(ret);
 	}
 
+	drawctxt->bin_base_offset = 0;
 	drawctxt->timestamp = 0;
 
 	drawctxt->base.flags = *flags & (KGSL_CONTEXT_PREAMBLE |
@@ -291,13 +430,11 @@ adreno_drawctxt_create(struct kgsl_device_private *dev_priv,
 		KGSL_CONTEXT_PER_CONTEXT_TS |
 		KGSL_CONTEXT_USER_GENERATED_TS |
 		KGSL_CONTEXT_NO_FAULT_TOLERANCE |
-		KGSL_CONTEXT_TYPE_MASK |
-		KGSL_CONTEXT_PWR_CONSTRAINT);
+		KGSL_CONTEXT_TYPE_MASK);
 
 	/* Always enable per-context timestamps */
 	drawctxt->base.flags |= KGSL_CONTEXT_PER_CONTEXT_TS;
-	drawctxt->type = (drawctxt->base.flags & KGSL_CONTEXT_TYPE_MASK)
-	>> KGSL_CONTEXT_TYPE_SHIFT;
+
 	mutex_init(&drawctxt->mutex);
 	init_waitqueue_head(&drawctxt->wq);
 	init_waitqueue_head(&drawctxt->waiting);
@@ -321,6 +458,8 @@ adreno_drawctxt_create(struct kgsl_device_private *dev_priv,
 		ret = -EINVAL;
 		goto err;
 
+	} else {
+		drawctxt->ops = &adreno_preamble_ctx_ops;
 	}
 
 	kgsl_sharedmem_writel(device, &device->memstore,
@@ -387,13 +526,6 @@ int adreno_drawctxt_detach(struct kgsl_context *context)
 		mutex_unlock(&drawctxt->mutex);
 
 		/*
-		 * If the context is deteached while we are waiting for
-		 * the next command in GFT SKIP CMD, print the context
-		 * detached status here.
-		 */
-		adreno_fault_skipcmd_detached(device, drawctxt, cmdbatch);
-
-		/*
 		 * Don't hold the drawctxt mutex while the cmdbatch is being
 		 * destroyed because the cmdbatch destroy takes the device
 		 * mutex and the world falls in on itself
@@ -432,7 +564,11 @@ int adreno_drawctxt_detach(struct kgsl_context *context)
 			KGSL_MEMSTORE_OFFSET(context->id, eoptimestamp),
 			drawctxt->timestamp);
 
-	adreno_profile_process_results(device);
+	kgsl_sharedmem_free(&drawctxt->gpustate);
+	kgsl_sharedmem_free(&drawctxt->context_gmem_shadow.gmemshadow);
+
+	if (drawctxt->ops->detach)
+		drawctxt->ops->detach(drawctxt);
 
 	/* wake threads waiting to submit commands from this context */
 	wake_up_all(&drawctxt->waiting);
@@ -440,6 +576,7 @@ int adreno_drawctxt_detach(struct kgsl_context *context)
 
 	return ret;
 }
+
 
 void adreno_drawctxt_destroy(struct kgsl_context *context)
 {
@@ -451,6 +588,7 @@ void adreno_drawctxt_destroy(struct kgsl_context *context)
 	kfree(drawctxt);
 }
 
+
 /**
  * adreno_context_restore() - generic context restore handler
  * @adreno_dev: the device
@@ -458,8 +596,11 @@ void adreno_drawctxt_destroy(struct kgsl_context *context)
  *
  * Basic context restore handler that writes the context identifier
  * to the ringbuffer and issues pagetable switch commands if necessary.
+ * May be called directly from the adreno_context_ops.restore function
+ * pointer or as the first action in a hardware specific restore
+ * function.
  */
-static int adreno_context_restore(struct adreno_device *adreno_dev,
+int adreno_context_restore(struct adreno_device *adreno_dev,
 				  struct adreno_context *context)
 {
 	struct kgsl_device *device;
@@ -481,10 +622,53 @@ static int adreno_context_restore(struct adreno_device *adreno_dev,
 	cmds[5] = cp_type0_packet(
 		adreno_getreg(adreno_dev, ADRENO_REG_UCHE_INVALIDATE0), 2);
 	cmds[6] = 0;
-	if (adreno_is_a3xx(adreno_dev))
-		cmds[7] = 0x90000000;
+	cmds[7] = 0x90000000;
 	return adreno_ringbuffer_issuecmds(device, context,
 				KGSL_CMD_FLAGS_NONE, cmds, 8);
+}
+
+
+const struct adreno_context_ops adreno_preamble_ctx_ops = {
+	.restore = adreno_context_restore,
+};
+
+/**
+ * context_save() - save old context when necessary
+ * @drawctxt - the old context
+ *
+ * For legacy context switching, we need to issue save
+ * commands unless the context is being destroyed.
+ */
+static inline int context_save(struct adreno_device *adreno_dev,
+				struct adreno_context *context)
+{
+	if (context->ops->save == NULL
+		|| kgsl_context_detached(&context->base)
+		|| context->state == ADRENO_CONTEXT_STATE_INVALID)
+		return 0;
+
+	return context->ops->save(adreno_dev, context);
+}
+
+/**
+ * adreno_drawctxt_set_bin_base_offset - set bin base offset for the context
+ * @device - KGSL device that owns the context
+ * @context- Generic KGSL context container for the context
+ * @offset - Offset to set
+ *
+ * Set the bin base offset for A2XX devices.  Not valid for A3XX devices.
+ */
+
+void adreno_drawctxt_set_bin_base_offset(struct kgsl_device *device,
+				      struct kgsl_context *context,
+				      unsigned int offset)
+{
+	struct adreno_context *drawctxt;
+
+	if (context == NULL)
+		return;
+	drawctxt = ADRENO_CONTEXT(context);
+	drawctxt->bin_base_offset = offset;
 }
 
 /**
@@ -503,9 +687,29 @@ int adreno_drawctxt_switch(struct adreno_device *adreno_dev,
 	struct kgsl_device *device = &adreno_dev->dev;
 	int ret = 0;
 
+	if (drawctxt) {
+		/*
+		* Handle legacy gmem / save restore flag on each IB.
+		* Userspace sets to guard IB sequences that require
+		* gmem to be saved and clears it at the end of the
+		* sequence.
+		*/
+		if (flags & KGSL_CONTEXT_SAVE_GMEM)
+			/* Set the flag in context so that the save is done
+			* when this context is switched out. */
+			set_bit(ADRENO_CONTEXT_GMEM_SAVE, &drawctxt->priv);
+		else
+			/* Remove GMEM saving flag from the context */
+			clear_bit(ADRENO_CONTEXT_GMEM_SAVE, &drawctxt->priv);
+	}
+
 	/* already current? */
-	if (adreno_dev->drawctxt_active == drawctxt)
+	if (adreno_dev->drawctxt_active == drawctxt) {
+		if (drawctxt && drawctxt->ops->draw_workaround)
+			ret = drawctxt->ops->draw_workaround(adreno_dev,
+							 drawctxt);
 		return ret;
+	}
 
 	trace_adreno_drawctxt_switch(adreno_dev->drawctxt_active,
 		drawctxt, flags);
@@ -521,7 +725,7 @@ int adreno_drawctxt_switch(struct adreno_device *adreno_dev,
 			adreno_dev->drawctxt_active->base.id :
 			KGSL_CONTEXT_INVALID);
 		/* Set the new context */
-		ret = adreno_context_restore(adreno_dev, drawctxt);
+		ret = drawctxt->ops->restore(adreno_dev, drawctxt);
 		if (ret) {
 			KGSL_DRV_ERR(device,
 					"Error in GPU context %d restore: %d\n",

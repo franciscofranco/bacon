@@ -2,7 +2,7 @@
  * drivers/gpu/ion/ion_carveout_heap.c
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -29,7 +29,6 @@
 
 #include <asm/mach/map.h>
 #include <asm/cacheflush.h>
-#include <linux/io.h>
 #include <linux/msm_ion.h>
 
 struct ion_carveout_heap {
@@ -103,8 +102,8 @@ static void ion_carveout_heap_free(struct ion_buffer *buffer)
 	buffer->priv_phys = ION_CARVEOUT_ALLOCATE_FAIL;
 }
 
-static struct sg_table *ion_carveout_heap_map_dma(struct ion_heap *heap,
-						  struct ion_buffer *buffer)
+struct sg_table *ion_carveout_heap_map_dma(struct ion_heap *heap,
+					      struct ion_buffer *buffer)
 {
 	size_t chunk_size = buffer->size;
 
@@ -115,8 +114,8 @@ static struct sg_table *ion_carveout_heap_map_dma(struct ion_heap *heap,
 					buffer->size);
 }
 
-static void ion_carveout_heap_unmap_dma(struct ion_heap *heap,
-					struct ion_buffer *buffer)
+void ion_carveout_heap_unmap_dma(struct ion_heap *heap,
+				 struct ion_buffer *buffer)
 {
 	if (buffer->sg_table)
 		sg_free_table(buffer->sg_table);
@@ -134,16 +133,13 @@ void *ion_carveout_heap_map_kernel(struct ion_heap *heap,
 	else
 		ret_value = ioremap(buffer->priv_phys, buffer->size);
 
-	if (ret_value == NULL)
-		return ERR_PTR(-ENOMEM);
-
 	return ret_value;
 }
 
 void ion_carveout_heap_unmap_kernel(struct ion_heap *heap,
 				    struct ion_buffer *buffer)
 {
-	iounmap(buffer->vaddr);
+	__arm_iounmap(buffer->vaddr);
 	buffer->vaddr = NULL;
 
 	return;
@@ -158,7 +154,7 @@ int ion_carveout_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 		vma->vm_page_prot = pgprot_writecombine(vma->vm_page_prot);
 
 	ret_value =  remap_pfn_range(vma, vma->vm_start,
-			PFN_DOWN(buffer->priv_phys) + vma->vm_pgoff,
+			__phys_to_pfn(buffer->priv_phys) + vma->vm_pgoff,
 			vma->vm_end - vma->vm_start,
 			vma->vm_page_prot);
 
@@ -166,7 +162,7 @@ int ion_carveout_heap_map_user(struct ion_heap *heap, struct ion_buffer *buffer,
 }
 
 static int ion_carveout_print_debug(struct ion_heap *heap, struct seq_file *s,
-				    const struct list_head *mem_map)
+				    const struct rb_root *mem_map)
 {
 	struct ion_carveout_heap *carveout_heap =
 		container_of(heap, struct ion_carveout_heap, heap);
@@ -180,14 +176,16 @@ static int ion_carveout_print_debug(struct ion_heap *heap, struct seq_file *s,
 		unsigned long size = carveout_heap->total_size;
 		unsigned long end = base+size;
 		unsigned long last_end = base;
-		struct mem_map_data *data;
+		struct rb_node *n;
 
 		seq_printf(s, "\nMemory Map\n");
 		seq_printf(s, "%16.s %14.s %14.s %14.s\n",
 			   "client", "start address", "end address",
 			   "size (hex)");
 
-		list_for_each_entry(data, mem_map, node) {
+		for (n = rb_first(mem_map); n; n = rb_next(n)) {
+			struct mem_map_data *data =
+					rb_entry(n, struct mem_map_data, node);
 			const char *client_name = "(null)";
 
 			if (last_end < data->addr) {
@@ -196,8 +194,8 @@ static int ion_carveout_print_debug(struct ion_heap *heap, struct seq_file *s,
 				da = data->addr-1;
 				seq_printf(s, "%16.s %14pa %14pa %14lu (%lx)\n",
 					   "FREE", &last_end, &da,
-					   (unsigned long)data->addr-last_end,
-					   (unsigned long)data->addr-last_end);
+					   data->addr-last_end,
+					   data->addr-last_end);
 			}
 
 			if (data->client_name)

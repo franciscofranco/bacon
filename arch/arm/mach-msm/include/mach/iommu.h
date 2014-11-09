@@ -86,7 +86,6 @@ struct msm_iommu_bfb_settings {
  * struct msm_iommu_drvdata - A single IOMMU hardware instance
  * @base:	IOMMU config port base address (VA)
  * @glb_base:	IOMMU config port base address for global register space (VA)
- * @phys_base:  IOMMU physical base address.
  * @ncb		The number of contexts on this IOMMU
  * @irq:	Interrupt number
  * @clk:	The bus clock for this IOMMU hardware instance
@@ -102,14 +101,12 @@ struct msm_iommu_bfb_settings {
  * @asid:         List of ASID and their usage count (index is ASID value).
  * @ctx_attach_count: Count of how many context are attached.
  * @bus_client  : Bus client needed to vote for bus bandwidth.
- * @needs_rem_spinlock  : 1 if remote spinlock is needed, 0 otherwise
  *
  * A msm_iommu_drvdata holds the global driver data about a single piece
  * of an IOMMU hardware instance.
  */
 struct msm_iommu_drvdata {
 	void __iomem *base;
-	phys_addr_t phys_base;
 	void __iomem *glb_base;
 	int ncb;
 	int ttbr_split;
@@ -128,7 +125,6 @@ struct msm_iommu_drvdata {
 	int *asid;
 	unsigned int ctx_attach_count;
 	unsigned int bus_client;
-	int needs_rem_spinlock;
 };
 
 /**
@@ -150,8 +146,8 @@ struct iommu_access_ops {
 	int (*iommu_clk_on)(struct msm_iommu_drvdata *);
 	void (*iommu_clk_off)(struct msm_iommu_drvdata *);
 	void * (*iommu_lock_initialize)(void);
-	void (*iommu_lock_acquire)(unsigned int need_extra_lock);
-	void (*iommu_lock_release)(unsigned int need_extra_lock);
+	void (*iommu_lock_acquire)(void);
+	void (*iommu_lock_release)(void);
 };
 
 void msm_iommu_add_drv(struct msm_iommu_drvdata *drv);
@@ -192,48 +188,21 @@ struct msm_iommu_ctx_drvdata {
 	int attach_count;
 };
 
-enum dump_reg {
-	DUMP_REG_FIRST,
-	DUMP_REG_FAR0 = DUMP_REG_FIRST,
-	DUMP_REG_FAR1,
-	DUMP_REG_PAR0,
-	DUMP_REG_PAR1,
-	DUMP_REG_FSR,
-	DUMP_REG_FSYNR0,
-	DUMP_REG_FSYNR1,
-	DUMP_REG_TTBR0_0,
-	DUMP_REG_TTBR0_1,
-	DUMP_REG_TTBR1_0,
-	DUMP_REG_TTBR1_1,
-	DUMP_REG_SCTLR,
-	DUMP_REG_ACTLR,
-	DUMP_REG_PRRR,
-	DUMP_REG_MAIR0 = DUMP_REG_PRRR,
-	DUMP_REG_NMRR,
-	DUMP_REG_MAIR1 = DUMP_REG_NMRR,
-	MAX_DUMP_REGS,
+struct msm_iommu_context_regs {
+	uint32_t far;
+	uint32_t par;
+	uint32_t fsr;
+	uint32_t fsynr0;
+	uint32_t fsynr1;
+	uint32_t ttbr0;
+	uint32_t ttbr1;
+	uint32_t sctlr;
+	uint32_t actlr;
+	uint32_t prrr;
+	uint32_t nmrr;
 };
 
-struct dump_regs_tbl {
-	/*
-	 * To keep things context-bank-agnostic, we only store the CB
-	 * register offset in `key'
-	 */
-	unsigned long key;
-	const char *name;
-	int offset;
-	int must_be_present;
-};
-extern struct dump_regs_tbl dump_regs_tbl[MAX_DUMP_REGS];
-
-#define COMBINE_DUMP_REG(upper, lower) (((u64) upper << 32) | lower)
-
-struct msm_iommu_context_reg {
-	uint32_t val;
-	bool valid;
-};
-
-void print_ctx_regs(struct msm_iommu_context_reg regs[]);
+void print_ctx_regs(struct msm_iommu_context_regs *regs);
 
 /*
  * Interrupt handler for the IOMMU context fault interrupt. Hooking the
@@ -281,20 +250,31 @@ static inline struct iommu_access_ops *msm_get_iommu_access_ops(void)
 }
 #endif
 
-#ifdef CONFIG_MSM_IOMMU_SYNC
-void msm_iommu_remote_p0_spin_lock(unsigned int need_lock);
-void msm_iommu_remote_p0_spin_unlock(unsigned int need_lock);
+#ifdef CONFIG_MSM_IOMMU_GPU_SYNC
+void msm_iommu_remote_p0_spin_lock(void);
+void msm_iommu_remote_p0_spin_unlock(void);
 
 #define msm_iommu_remote_lock_init() _msm_iommu_remote_spin_lock_init()
-#define msm_iommu_remote_spin_lock(need_lock) \
-				msm_iommu_remote_p0_spin_lock(need_lock)
-#define msm_iommu_remote_spin_unlock(need_lock) \
-				msm_iommu_remote_p0_spin_unlock(need_lock)
+#define msm_iommu_remote_spin_lock() msm_iommu_remote_p0_spin_lock()
+#define msm_iommu_remote_spin_unlock() msm_iommu_remote_p0_spin_unlock()
 #else
 #define msm_iommu_remote_lock_init()
-#define msm_iommu_remote_spin_lock(need_lock)
-#define msm_iommu_remote_spin_unlock(need_lock)
+#define msm_iommu_remote_spin_lock()
+#define msm_iommu_remote_spin_unlock()
 #endif
+
+/* Allows kgsl iommu driver to acquire lock */
+#define msm_iommu_lock() \
+	do { \
+		msm_iommu_mutex_lock(); \
+		msm_iommu_remote_spin_lock(); \
+	} while (0)
+
+#define msm_iommu_unlock() \
+	do { \
+		msm_iommu_remote_spin_unlock(); \
+		msm_iommu_mutex_unlock(); \
+	} while (0)
 
 #ifdef CONFIG_MSM_IOMMU
 /*

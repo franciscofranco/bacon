@@ -151,9 +151,9 @@ static irqreturn_t iommu_pm_evt_ovfl_int_handler(int irq, void *dev_id)
 		goto out;
 	}
 
-	iommu->ops->iommu_lock_acquire(0);
+	iommu->ops->iommu_lock_acquire();
 	iommu_pm_check_for_overflow(pmon);
-	iommu->ops->iommu_lock_release(0);
+	iommu->ops->iommu_lock_release();
 
 	mutex_unlock(&pmon->lock);
 

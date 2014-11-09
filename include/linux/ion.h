@@ -2,7 +2,7 @@
  * include/linux/ion.h
  *
  * Copyright (C) 2011 Google, Inc.
- * Copyright (c) 2011-2014, The Linux Foundation. All rights reserved.
+ * Copyright (c) 2011-2013, The Linux Foundation. All rights reserved.
  *
  * This software is licensed under the terms of the GNU General Public
  * License version 2, as published by the Free Software Foundation, and
@@ -21,8 +21,7 @@
 #include <linux/ioctl.h>
 #include <linux/types.h>
 
-typedef int ion_user_handle_t;
-
+struct ion_handle;
 /**
  * enum ion_heap_types - list of all possible types of heaps
  * @ION_HEAP_TYPE_SYSTEM:	 memory allocated via vmalloc
@@ -30,7 +29,6 @@ typedef int ion_user_handle_t;
  * @ION_HEAP_TYPE_CARVEOUT:	 memory allocated from a prereserved
  * 				 carveout heap, allocations are physically
  * 				 contiguous
- * @ION_HEAP_TYE_DMA:   memory allocated via DMA API
  * @ION_HEAP_END:		helper for iterating over heaps
  */
 enum ion_heap_type {
@@ -38,7 +36,6 @@ enum ion_heap_type {
 	ION_HEAP_TYPE_SYSTEM_CONTIG,
 	ION_HEAP_TYPE_CARVEOUT,
 	ION_HEAP_TYPE_CHUNK,
-	ION_HEAP_TYPE_DMA,
 	ION_HEAP_TYPE_CUSTOM, /* must be last so device specific heaps always
 				 are at the end of this enum */
 	ION_NUM_HEAPS,
@@ -47,7 +44,6 @@ enum ion_heap_type {
 #define ION_HEAP_SYSTEM_MASK		(1 << ION_HEAP_TYPE_SYSTEM)
 #define ION_HEAP_SYSTEM_CONTIG_MASK	(1 << ION_HEAP_TYPE_SYSTEM_CONTIG)
 #define ION_HEAP_CARVEOUT_MASK		(1 << ION_HEAP_TYPE_CARVEOUT)
-#define ION_HEAP_TYPE_DMA_MASK		(1 << ION_HEAP_TYPE_DMA)
 
 #define ION_NUM_HEAP_IDS		sizeof(unsigned int) * 8
 
@@ -65,8 +61,7 @@ enum ion_heap_type {
 
 #ifdef __KERNEL__
 #include <linux/err.h>
-
-struct ion_handle;
+#include <mach/ion.h>
 struct ion_device;
 struct ion_heap;
 struct ion_mapper;
@@ -77,17 +72,18 @@ struct ion_buffer;
    plumbed in the kernel, and all instances of ion_phys_addr_t should
    be converted to phys_addr_t.  For the time being many kernel interfaces
    do not accept phys_addr_t's that would have to */
-#define ion_phys_addr_t dma_addr_t
+#define ion_phys_addr_t unsigned long
 
 /**
  * struct ion_platform_heap - defines a heap in the given platform
  * @type:	type of the heap from ion_heap_type enum
  * @id:		unique identifier for heap.  When allocating higher numbers
- *		will be allocated from first.  At allocation these are passed
+ * 		will be allocated from first.  At allocation these are passed
  *		as a bit mask and therefore can not exceed ION_NUM_HEAP_IDS.
  * @name:	used for debug purposes
  * @base:	base address of heap in physical memory if applicable
  * @size:	size of the heap in bytes if applicable
+ * @memory_type:Memory type used for the heap
  * @has_outer_cache:    set to 1 if outer cache is used, 0 otherwise.
  * @extra_data:	Extra data specific to each heap type
  * @priv:	heap private data
@@ -102,6 +98,7 @@ struct ion_platform_heap {
 	const char *name;
 	ion_phys_addr_t base;
 	size_t size;
+	enum ion_memory_types memory_type;
 	unsigned int has_outer_cache;
 	void *extra_data;
 	ion_phys_addr_t align;
@@ -345,7 +342,7 @@ struct ion_allocation_data {
 	size_t align;
 	unsigned int heap_mask;
 	unsigned int flags;
-	ion_user_handle_t handle;
+	struct ion_handle *handle;
 };
 
 /**
@@ -359,7 +356,7 @@ struct ion_allocation_data {
  * provides the file descriptor and the kernel returns the handle.
  */
 struct ion_fd_data {
-	ion_user_handle_t handle;
+	struct ion_handle *handle;
 	int fd;
 };
 
@@ -368,7 +365,7 @@ struct ion_fd_data {
  * @handle:	a handle
  */
 struct ion_handle_data {
-	ion_user_handle_t handle;
+	struct ion_handle *handle;
 };
 
 /**

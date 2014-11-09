@@ -1,4 +1,4 @@
-/* Copyright (c) 2002,2007-2014, The Linux Foundation. All rights reserved.
+/* Copyright (c) 2002,2007-2013, The Linux Foundation. All rights reserved.
  *
  * This program is free software; you can redistribute it and/or modify
  * it under the terms of the GNU General Public License version 2 and
@@ -129,11 +129,10 @@ struct kgsl_functable {
 	void (*drawctxt_destroy) (struct kgsl_context *context);
 	long (*ioctl) (struct kgsl_device_private *dev_priv,
 		unsigned int cmd, void *data);
-	int (*setproperty) (struct kgsl_device_private *dev_priv,
+	int (*setproperty) (struct kgsl_device *device,
 		enum kgsl_property_type type, void *value,
 		unsigned int sizebytes);
-	int (*next_event)(struct kgsl_device *device,
-		struct kgsl_event *event);
+	int (*postmortem_dump) (struct kgsl_device *device, int manual);
 	void (*drawctxt_sched)(struct kgsl_device *device,
 		struct kgsl_context *context);
 	void (*resume)(struct kgsl_device *device);
@@ -173,9 +172,11 @@ struct kgsl_event {
  * @ibcount: Number of IBs in the command list
  * @ibdesc: Pointer to the list of IBs
  * @expires: Point in time when the cmdbatch is considered to be hung
+ * @invalid:  non-zero if the dispatcher determines the command and the owning
+ * context should be invalidated
  * @refcount: kref structure to maintain the reference count
  * @synclist: List of context/timestamp tuples to wait for before issuing
- * @timer: a timer used to track possible sync timeouts for this cmdbatch
+ * @priority: Priority of the cmdbatch (inherited from the context)
  *
  * This struture defines an atomic batch of command buffers issued from
  * userspace.
@@ -192,9 +193,10 @@ struct kgsl_cmdbatch {
 	uint32_t ibcount;
 	struct kgsl_ibdesc *ibdesc;
 	unsigned long expires;
+	int invalid;
 	struct kref refcount;
 	struct list_head synclist;
-	struct timer_list timer;
+	int priority;
 };
 
 /**
@@ -250,7 +252,6 @@ struct kgsl_device {
 	int open_count;
 
 	struct mutex mutex;
-	atomic64_t mutex_owner;
 	uint32_t state;
 	uint32_t requested_state;
 
@@ -279,6 +280,14 @@ struct kgsl_device {
 	 * dumped
 	 */
 	struct list_head snapshot_obj_list;
+	/* List of IB's to be dumped */
+	struct list_head snapshot_cp_list;
+	/* Work item that saves snapshot's frozen object data */
+	struct work_struct snapshot_obj_ws;
+	/* snapshot memory holding the hanging IB's objects in snapshot */
+	void *snapshot_cur_ib_objs;
+	/* Size of snapshot_cur_ib_objs */
+	int snapshot_cur_ib_objs_size;
 
 	/* Logging levels */
 	int cmd_log;
@@ -286,12 +295,18 @@ struct kgsl_device {
 	int drv_log;
 	int mem_log;
 	int pwr_log;
+	int pm_dump_enable;
 	struct kgsl_pwrscale pwrscale;
 	struct kobject pwrscale_kobj;
 	struct work_struct ts_expired_ws;
 	struct list_head events;
 	struct list_head events_pending_list;
 	unsigned int events_last_timestamp;
+	s64 on_time;
+
+	/* Postmortem Control switches */
+	int pm_regs_enabled;
+	int pm_ib_enabled;
 
 	int reset_counter; /* Track how many GPU core resets have occured */
 	int cff_dump_enable;
@@ -306,6 +321,9 @@ void kgsl_process_events(struct work_struct *work);
 			kgsl_idle_check),\
 	.ts_expired_ws  = __WORK_INITIALIZER((_dev).ts_expired_ws,\
 			kgsl_process_events),\
+	.snapshot_obj_ws = \
+		__WORK_INITIALIZER((_dev).snapshot_obj_ws,\
+		kgsl_snapshot_save_frozen_objs),\
 	.context_idr = IDR_INIT((_dev).context_idr),\
 	.events = LIST_HEAD_INIT((_dev).events),\
 	.events_pending_list = LIST_HEAD_INIT((_dev).events_pending_list), \
@@ -339,11 +357,10 @@ struct kgsl_process_private;
  * @events: list head of pending events for this context
  * @events_list: list node for the list of all contexts that have pending events
  * @pid: process that owns this context.
- * @tid: task that created this context.
+ * @pagefault: flag set if this context caused a pagefault.
  * @pagefault_ts: global timestamp of the pagefault, if KGSL_CONTEXT_PAGEFAULT
  * is set.
  * @flags: flags from userspace controlling the behavior of this context
- * @pwr_constraint: power constraint from userspace for this context
  * @fault_count: number of times gpu hanged in last _context_throttle_time ms
  * @fault_time: time of the first gpu hang in last _context_throttle_time ms
  */
@@ -351,7 +368,6 @@ struct kgsl_context {
 	struct kref refcount;
 	uint32_t id;
 	pid_t pid;
-	pid_t tid;
 	struct kgsl_device_private *dev_priv;
 	struct kgsl_process_private *proc_priv;
 	unsigned long priv;
@@ -363,7 +379,6 @@ struct kgsl_context {
 	struct list_head events_list;
 	unsigned int pagefault_ts;
 	unsigned int flags;
-	struct kgsl_pwr_constraint pwr_constraint;
 	unsigned int fault_count;
 	unsigned long fault_time;
 };
@@ -417,6 +432,11 @@ enum kgsl_process_priv_flags {
 struct kgsl_device_private {
 	struct kgsl_device *device;
 	struct kgsl_process_private *process_priv;
+};
+
+struct kgsl_power_stats {
+	s64 total_time;
+	s64 busy_time;
 };
 
 struct kgsl_device *kgsl_get_device(int dev_idx);
@@ -526,6 +546,7 @@ const char *kgsl_pwrstate_to_str(unsigned int state);
 int kgsl_device_snapshot_init(struct kgsl_device *device);
 int kgsl_device_snapshot(struct kgsl_device *device, int hang);
 void kgsl_device_snapshot_close(struct kgsl_device *device);
+void kgsl_snapshot_save_frozen_objs(struct work_struct *work);
 
 static inline struct kgsl_device_platform_data *
 kgsl_device_get_drvdata(struct kgsl_device *dev)
@@ -541,9 +562,6 @@ void kgsl_context_destroy(struct kref *kref);
 int kgsl_context_init(struct kgsl_device_private *, struct kgsl_context
 		*context);
 int kgsl_context_detach(struct kgsl_context *context);
-
-int kgsl_memfree_find_entry(pid_t pid, unsigned long *gpuaddr,
-	unsigned long *size, unsigned int *flags);
 
 /**
  * kgsl_context_put() - Release context reference count
@@ -704,53 +722,54 @@ static inline void kgsl_cmdbatch_put(struct kgsl_cmdbatch *cmdbatch)
 }
 
 /**
- * kgsl_sysfs_store() - parse a string from a sysfs store function
- * @buf: Incoming string to parse
- * @ptr: Pointer to an unsigned int to store the value
+ * kgsl_cmdbatch_sync_pending() - return true if the cmdbatch is waiting
+ * @cmdbatch: Pointer to the command batch object to check
+ *
+ * Return non-zero if the specified command batch is still waiting for sync
+ * point dependencies to be satisfied
  */
-static inline int kgsl_sysfs_store(const char *buf, unsigned int *ptr)
+static inline int kgsl_cmdbatch_sync_pending(struct kgsl_cmdbatch *cmdbatch)
 {
-	unsigned int val;
-	int rc;
+	int ret;
 
-	rc = kstrtou32(buf, 0, &val);
-	if (rc)
-		return rc;
-
-	if (ptr)
-		*ptr = val;
-
-	return 0;
-}
-
-/**
- * kgsl_mutex_lock() -- try to acquire the mutex if current thread does not
- *                      already own it
- * @mutex: mutex to lock
- * @owner: current mutex owner
- */
-
-static inline int kgsl_mutex_lock(struct mutex *mutex, atomic64_t *owner)
-{
-
-	if (atomic64_read(owner) != (long)current) {
-		mutex_lock(mutex);
-		atomic64_set(owner, (long)current);
-		/* Barrier to make sure owner is updated */
-		smp_wmb();
+	if (cmdbatch == NULL)
 		return 0;
-	}
-	return 1;
+
+	spin_lock(&cmdbatch->lock);
+	ret = list_empty(&cmdbatch->synclist) ? 0 : 1;
+	spin_unlock(&cmdbatch->lock);
+
+	return ret;
 }
 
-/**
- * kgsl_mutex_unlock() -- Clear the owner and unlock the mutex
- * @mutex: mutex to unlock
- * @owner: current mutex owner
- */
-static inline void kgsl_mutex_unlock(struct mutex *mutex, atomic64_t *owner)
+#if defined(CONFIG_GPU_TRACEPOINTS)
+
+#include <trace/events/gpu.h>
+
+static inline void kgsl_trace_gpu_job_enqueue(unsigned int ctxt_id,
+		unsigned int timestamp, const char *type)
 {
-	atomic64_set(owner, 0);
-	mutex_unlock(mutex);
+	trace_gpu_job_enqueue(ctxt_id, timestamp, type);
 }
+
+static inline void kgsl_trace_gpu_sched_switch(const char *name,
+	u64 time, u32 ctxt_id, s32 prio, u32 timestamp)
+{
+	trace_gpu_sched_switch(name, time, ctxt_id, prio, timestamp);
+}
+
+#else
+
+static inline void kgsl_trace_gpu_job_enqueue(unsigned int ctxt_id,
+		unsigned int timestamp, const char *type)
+{
+}
+
+static inline void kgsl_trace_gpu_sched_switch(const char *name,
+	u64 time, u32 ctxt_id, s32 prio, u32 timestamp)
+{
+}
+
+#endif
+
 #endif  /* __KGSL_DEVICE_H */
