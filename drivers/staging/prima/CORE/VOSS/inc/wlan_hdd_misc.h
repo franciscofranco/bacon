@@ -44,10 +44,10 @@
 
 #ifdef MSM_PLATFORM
 #ifdef QC_WLAN_CHIPSET_PRIMA
-#define WLAN_INI_FILE              "../../../sbin/wlan/WCNSS_qcom_cfg.ini"
-#define WLAN_CFG_FILE              "../../../sbin/wlan/WCNSS_cfg.dat"
+#define WLAN_INI_FILE              "wlan/prima/WCNSS_qcom_cfg.ini"
+#define WLAN_CFG_FILE              "wlan/prima/WCNSS_cfg.dat"
 #define WLAN_FW_FILE               ""
-#define WLAN_NV_FILE               "../../../sbin/wlan/WCNSS_qcom_wlan_nv.bin"
+#define WLAN_NV_FILE               "wlan/prima/WCNSS_qcom_wlan_nv.bin"
 #define WLAN_DICT_FILE             "wlan/prima/WCNSS_qcom_wlan_dictionary.dat"
 #define WLAN_COUNTRY_INFO_FILE     "wlan/prima/WCNSS_wlan_country_info.dat"
 #define WLAN_HO_CFG_FILE           "wlan/prima/WCNSS_wlan_ho_config"
