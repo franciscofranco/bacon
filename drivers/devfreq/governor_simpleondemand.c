@@ -16,6 +16,12 @@
 #include "governor.h"
 
 #define DEVFREQ_SIMPLE_ONDEMAND	"simple_ondemand"
+#define DFSO_UPTHRESHOLD	(80)
+#define DFSO_DOWNDIFFERENTIAL	(20)
+
+unsigned int dfso_upthreshold;
+unsigned int dfso_downdifferential;
+unsigned int dfso_simple_scaling;
 
 static int devfreq_simple_ondemand_func(struct devfreq *df,
 					unsigned long *freq,
@@ -24,12 +30,8 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 	struct devfreq_dev_status stat;
 	int err;
 	unsigned long long a, b;
-	struct devfreq_simple_ondemand_data *data = df->data;
 	unsigned long max = (df->max_freq) ? df->max_freq : UINT_MAX;
 	unsigned long min = (df->min_freq) ? df->min_freq : 0;
-
-	if (!data)
-		return -EINVAL;
 
 	stat.private_data = NULL;
 
@@ -43,12 +45,12 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 		stat.total_time >>= 7;
 	}
 
-	if (data && data->simple_scaling) {
+	if (dfso_simple_scaling) {
 		if (stat.busy_time * 100 >
-		    stat.total_time * data->upthreshold)
+		    stat.total_time * dfso_upthreshold)
 			*freq = max;
 		else if (stat.busy_time * 100 <
-		    stat.total_time * data->downdifferential)
+		    stat.total_time * dfso_downdifferential)
 			*freq = min;
 		else
 			*freq = df->previous_freq;
@@ -63,7 +65,7 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 
 	/* Set MAX if it's busy enough */
 	if (stat.busy_time * 100 >
-	    stat.total_time * data->upthreshold) {
+	    stat.total_time * dfso_upthreshold) {
 		*freq = max;
 		return 0;
 	}
@@ -76,7 +78,7 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 
 	/* Keep the current frequency */
 	if (stat.busy_time * 100 >
-	    stat.total_time * (data->upthreshold - data->downdifferential)) {
+	    stat.total_time * (dfso_upthreshold - dfso_downdifferential)) {
 		*freq = stat.current_frequency;
 		return 0;
 	}
@@ -86,7 +88,7 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 	a *= stat.current_frequency;
 	b = div_u64(a, stat.total_time);
 	b *= 100;
-	b = div_u64(b, (data->upthreshold - data->downdifferential / 2));
+	b = div_u64(b, (dfso_upthreshold - dfso_downdifferential / 2));
 	*freq = (unsigned long) b;
 
 	if (df->min_freq && *freq < df->min_freq)
@@ -100,10 +102,7 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 static ssize_t upthreshold_show(struct device *dev,
 				struct device_attribute *attr, char *buf)
 {
-	struct devfreq *devfreq = to_devfreq(dev);
-	struct devfreq_simple_ondemand_data *data = devfreq->data;
-
-	return sprintf(buf, "%d\n", data->upthreshold);
+	return sprintf(buf, "%d\n", dfso_upthreshold);
 }
 
 static ssize_t upthreshold_store(struct device *dev,
@@ -111,14 +110,12 @@ static ssize_t upthreshold_store(struct device *dev,
 				 size_t count)
 {
 	unsigned int val;
-	struct devfreq *devfreq = to_devfreq(dev);
-	struct devfreq_simple_ondemand_data *data = devfreq->data;
 
 	sscanf(buf, "%d", &val);
-	if (val > 100 || val < data->downdifferential)
+	if (val > 100 || val < dfso_downdifferential)
 		return -EINVAL;
 
-	data->upthreshold = val;
+	dfso_upthreshold = val;
 
 	return count;
 }
@@ -126,10 +123,7 @@ static ssize_t upthreshold_store(struct device *dev,
 static ssize_t downdifferential_show(struct device *dev,
 				     struct device_attribute *attr, char *buf)
 {
-	struct devfreq *devfreq = to_devfreq(dev);
-	struct devfreq_simple_ondemand_data *data = devfreq->data;
-
-	return sprintf(buf, "%d\n", data->downdifferential);
+	return sprintf(buf, "%d\n", dfso_downdifferential);
 }
 
 static ssize_t downdifferential_store(struct device *dev,
@@ -137,14 +131,33 @@ static ssize_t downdifferential_store(struct device *dev,
 				      const char *buf, size_t count)
 {
 	unsigned int val;
-	struct devfreq *devfreq = to_devfreq(dev);
-	struct devfreq_simple_ondemand_data *data = devfreq->data;
 
 	sscanf(buf, "%d", &val);
-	if (val > data->upthreshold)
+	if (val > dfso_upthreshold)
 		return -EINVAL;
 
-	data->downdifferential = val;
+	dfso_downdifferential = val;
+
+	return count;
+}
+
+static ssize_t simple_scaling_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	return sprintf(buf, "%d\n", dfso_simple_scaling);
+}
+
+static ssize_t simple_scaling_store(struct device *dev,
+				      struct device_attribute *attr,
+				      const char *buf, size_t count)
+{
+	unsigned int val;
+
+	sscanf(buf, "%d", &val);
+	if (val < 0 || val > 1)
+		return -EINVAL;
+
+	dfso_simple_scaling = val;
 
 	return count;
 }
@@ -152,10 +165,13 @@ static ssize_t downdifferential_store(struct device *dev,
 static DEVICE_ATTR(upthreshold, 0644, upthreshold_show, upthreshold_store);
 static DEVICE_ATTR(downdifferential, 0644, downdifferential_show,
 		   downdifferential_store);
+static DEVICE_ATTR(simple_scaling, 0644, simple_scaling_show,
+		   simple_scaling_store);
 
 static struct attribute *attrs[] = {
 	&dev_attr_upthreshold.attr,
 	&dev_attr_downdifferential.attr,
+	&dev_attr_simple_scaling.attr,
 	NULL,
 };
 
@@ -164,6 +180,23 @@ static struct attribute_group attr_group = {
 	.name = DEVFREQ_SIMPLE_ONDEMAND,
 };
 
+static int devfreq_simple_ondemand_start(struct devfreq *devfreq)
+{
+	dfso_upthreshold = DFSO_UPTHRESHOLD;
+	dfso_downdifferential = DFSO_DOWNDIFFERENTIAL;
+	devfreq_monitor_start(devfreq);
+
+	return devfreq_policy_add_files(devfreq, attr_group);
+}
+
+static int devfreq_simple_ondemand_stop(struct devfreq *devfreq)
+{
+	devfreq_policy_remove_files(devfreq, attr_group);
+	devfreq_monitor_stop(devfreq);
+
+	return 0;
+}
+
 static int devfreq_simple_ondemand_handler(struct devfreq *devfreq,
 				unsigned int event, void *data)
 {
@@ -171,13 +204,11 @@ static int devfreq_simple_ondemand_handler(struct devfreq *devfreq,
 
 	switch (event) {
 	case DEVFREQ_GOV_START:
-		devfreq_monitor_start(devfreq);
-		ret = devfreq_policy_add_files(devfreq, attr_group);
+		ret = devfreq_simple_ondemand_start(devfreq);
 		break;
 
 	case DEVFREQ_GOV_STOP:
-		devfreq_policy_remove_files(devfreq, attr_group);
-		devfreq_monitor_stop(devfreq);
+		devfreq_simple_ondemand_stop(devfreq);
 		break;
 
 	case DEVFREQ_GOV_INTERVAL:
