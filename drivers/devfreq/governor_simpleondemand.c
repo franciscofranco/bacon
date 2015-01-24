@@ -18,6 +18,7 @@
 #define DEVFREQ_SIMPLE_ONDEMAND	"simple_ondemand"
 #define DFSO_UPTHRESHOLD	(80)
 #define DFSO_DOWNDIFFERENTIAL	(20)
+#define FLOOR			(7500)
 
 unsigned int dfso_upthreshold;
 unsigned int dfso_downdifferential;
@@ -44,6 +45,13 @@ static int devfreq_simple_ondemand_func(struct devfreq *df,
 		stat.busy_time >>= 7;
 		stat.total_time >>= 7;
 	}
+
+	/*
+	 * If the GPU has been active for less than 7.5ms or
+	 * it wasn't busy at all, return early
+	 */
+	if (stat.total_time < FLOOR || !stat.busy_time)
+		return 0;
 
 	if (dfso_simple_scaling) {
 		if (stat.busy_time * 100 >
