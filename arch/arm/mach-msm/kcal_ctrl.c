@@ -89,31 +89,8 @@ static ssize_t kcal_ctrl_show(struct device *dev,
 		return sprintf(buf, "OK\n");
 }
 
-static ssize_t kcal_min_store(struct device *dev, struct device_attribute *attr,
-						const char *buf, size_t count)
-{
-	int kcal_min = 0;
-
-	if (!count)
-		return -EINVAL;
-
-	sscanf(buf, "%d", &kcal_min);
-	kcal_pdata->set_min(kcal_min);
-	return count;
-}
-
-static ssize_t kcal_min_show(struct device *dev, struct device_attribute *attr,
-								char *buf)
-{
-	int kcal_min = 0;
-
-	kcal_pdata->get_min(&kcal_min);
-	return sprintf(buf, "%d\n", kcal_min);
-}
-
 static DEVICE_ATTR(kcal, 0644, kcal_show, kcal_store);
 static DEVICE_ATTR(kcal_ctrl, 0644, kcal_ctrl_show, kcal_ctrl_store);
-static DEVICE_ATTR(kcal_min, 0644, kcal_min_show, kcal_min_store);
 
 static int kcal_ctrl_probe(struct platform_device *pdev)
 {
@@ -130,9 +107,6 @@ static int kcal_ctrl_probe(struct platform_device *pdev)
 	if(rc !=0)
 		return -1;
 	rc = device_create_file(&pdev->dev, &dev_attr_kcal_ctrl);
-	if(rc !=0)
-		return -1;
-	rc = device_create_file(&pdev->dev, &dev_attr_kcal_min);
 	if(rc !=0)
 		return -1;
 
