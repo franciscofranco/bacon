@@ -161,7 +161,7 @@ online_all:
 	stats.timestamp = ktime_to_us(ktime_get());
 }
 
-static void cpu_smash(void)
+static void cpu_smash(unsigned int load)
 {
 	struct hotplug_tunables *t = &tunables;
 	u64 extra_time = MIN_CPU_UP_US;
@@ -186,6 +186,13 @@ static void cpu_smash(void)
 		extra_time = t->min_time_cpu_online * MIN_CPU_UP_US;
 
 	if (ktime_to_us(ktime_get()) < stats.timestamp + extra_time)
+		return;
+
+	/*
+	 * If current load is higher than our threshold we can skip offlining
+	 * on the next sample
+	 */
+	if (load >= t->load_threshold)
 		return;
 
 	cpus_offline_work();
@@ -233,7 +240,7 @@ static void __ref decide_hotplug_func(struct work_struct *work)
 			--stats.counter;
 
 		if (online_cpus > 2)
-			cpu_smash();
+			cpu_smash(cur_load);
 	}
 
 reschedule:
@@ -283,7 +290,7 @@ static ssize_t load_threshold_show(struct device *dev,
 {
 	struct hotplug_tunables *t = &tunables;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", t->load_threshold);
+	return snprintf(buf, 10, "%u\n", t->load_threshold);
 }
 
 static ssize_t load_threshold_store(struct device *dev,
@@ -307,7 +314,7 @@ static ssize_t high_load_counter_show(struct device *dev,
 {
 	struct hotplug_tunables *t = &tunables;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", t->high_load_counter);
+	return snprintf(buf, 10, "%u\n", t->high_load_counter);
 }
 
 static ssize_t high_load_counter_store(struct device *dev,
@@ -331,7 +338,7 @@ static ssize_t max_load_counter_show(struct device *dev,
 {
 	struct hotplug_tunables *t = &tunables;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", t->max_load_counter);
+	return snprintf(buf, 10, "%u\n", t->max_load_counter);
 }
 
 static ssize_t max_load_counter_store(struct device *dev,
@@ -355,7 +362,7 @@ static ssize_t cpufreq_unplug_limit_show(struct device *dev,
 {
 	struct hotplug_tunables *t = &tunables;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", t->cpufreq_unplug_limit);
+	return snprintf(buf, 10, "%u\n", t->cpufreq_unplug_limit);
 }
 
 static ssize_t cpufreq_unplug_limit_store(struct device *dev,
@@ -379,7 +386,7 @@ static ssize_t min_time_cpu_online_show(struct device *dev,
 {
 	struct hotplug_tunables *t = &tunables;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", t->min_time_cpu_online);
+	return snprintf(buf, 10, "%u\n", t->min_time_cpu_online);
 }
 
 static ssize_t min_time_cpu_online_store(struct device *dev,
@@ -403,7 +410,7 @@ static ssize_t timer_show(struct device *dev, struct device_attribute *attr,
 {
 	struct hotplug_tunables *t = &tunables;
 
-	return snprintf(buf, PAGE_SIZE, "%u\n", t->timer);
+	return snprintf(buf, 10, "%u\n", t->timer);
 }
 
 static ssize_t timer_store(struct device *dev, struct device_attribute *attr,
