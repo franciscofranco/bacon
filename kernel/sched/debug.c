@@ -153,12 +153,12 @@ static void print_rq(struct seq_file *m, struct rq *rq, int rq_cpu)
 
 	read_lock_irqsave(&tasklist_lock, flags);
 
-	do_each_thread(g, p) {
+	for_each_process_thread(g, p) {
 		if (!p->on_rq || task_cpu(p) != rq_cpu)
 			continue;
 
 		print_task(m, rq, p);
-	} while_each_thread(g, p);
+	}
 
 	read_unlock_irqrestore(&tasklist_lock, flags);
 }
@@ -202,7 +202,7 @@ void print_cfs_rq(struct seq_file *m, int cpu, struct cfs_rq *cfs_rq)
 			SPLIT_NS(spread0));
 	SEQ_printf(m, "  .%-30s: %d\n", "nr_spread_over",
 			cfs_rq->nr_spread_over);
-	SEQ_printf(m, "  .%-30s: %ld\n", "nr_running", cfs_rq->nr_running);
+	SEQ_printf(m, "  .%-30s: %d\n", "nr_running", cfs_rq->nr_running);
 	SEQ_printf(m, "  .%-30s: %ld\n", "load", cfs_rq->load.weight);
 #ifdef CONFIG_FAIR_GROUP_SCHED
 #ifdef CONFIG_SMP
@@ -295,6 +295,7 @@ static void print_cpu(struct seq_file *m, int cpu)
 #define P64(n) SEQ_printf(m, "  .%-30s: %Ld\n", #n, rq->n);
 
 	P(yld_count);
+	P(yield_sleep_count);
 
 	P(sched_count);
 	P(sched_goidle);
