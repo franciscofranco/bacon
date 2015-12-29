@@ -5080,6 +5080,8 @@ static void nohz_idle_balance(int this_cpu, enum cpu_idle_type idle)
 		if (need_resched())
 			break;
 
+		rq = cpu_rq(balance_cpu);
+
 		/*
 		 * If time for next balance is due,
 		 * do the balance.
@@ -5092,7 +5094,6 @@ static void nohz_idle_balance(int this_cpu, enum cpu_idle_type idle)
 			rebalance_domains(balance_cpu, CPU_IDLE);
 		}
 
-		rq = cpu_rq(balance_cpu);
 		if (time_after(this_rq->next_balance, rq->next_balance))
 			this_rq->next_balance = rq->next_balance;
 	}
