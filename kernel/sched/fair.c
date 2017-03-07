@@ -5058,7 +5058,7 @@ out_one_pinned:
 out:
 	trace_sched_load_balance(this_cpu, idle, *balance,
 				 group ? group->cpumask[0] : 0,
-				 busiest ? busiest->nr_running : 0, imbalance,
+				 busiest ? busiest->nr_running : 0, env.imbalance,
 				 env.flags, ld_moved, sd->balance_interval);
 	return ld_moved;
 }
