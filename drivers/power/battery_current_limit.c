@@ -201,7 +201,8 @@ static void bcl_iavail_work(struct work_struct *work)
 	if (gbcl->bcl_mode == BCL_DEVICE_ENABLED) {
 		bcl_calculate_iavail_trigger();
 		/* restart the delay work for caculating imax */
-		schedule_delayed_work(&bcl->bcl_iavail_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&bcl->bcl_iavail_work,
 			msecs_to_jiffies(bcl->bcl_poll_interval_msec));
 	}
 }
