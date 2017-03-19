@@ -524,7 +524,7 @@ static int __init msm_cpufreq_register(void)
 	return cpufreq_register_driver(&msm_cpufreq_driver);
 }
 
-subsys_initcall(msm_cpufreq_register);
+device_initcall(msm_cpufreq_register);
 
 static int __init msm_cpufreq_early_register(void)
 {
