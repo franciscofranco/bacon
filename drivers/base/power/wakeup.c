@@ -15,9 +15,27 @@
 #include <linux/seq_file.h>
 #include <linux/debugfs.h>
 #include <linux/types.h>
+#include <linux/moduleparam.h>
 #include <trace/events/power.h>
 
 #include "power.h"
+
+static bool enable_qcom_rx_wakelock_ws = true;
+module_param(enable_qcom_rx_wakelock_ws, bool, 0644);
+static bool enable_wlan_extscan_wl_ws = true;
+module_param(enable_wlan_extscan_wl_ws, bool, 0644);
+static bool enable_ipa_ws = true;
+module_param(enable_ipa_ws, bool, 0644);
+static bool enable_wlan_wow_wl_ws = true;
+module_param(enable_wlan_wow_wl_ws, bool, 0644);
+static bool enable_wlan_ws = true;
+module_param(enable_wlan_ws, bool, 0644);
+static bool enable_timerfd_ws = true;
+module_param(enable_timerfd_ws, bool, 0644);
+static bool enable_netlink_ws = true;
+module_param(enable_netlink_ws, bool, 0644);
+static bool enable_netmgr_wl_ws = true;
+module_param(enable_netmgr_wl_ws, bool, 0644);
 
 /*
  * If set, the suspend/hibernate code will abort transitions to a sleep state
@@ -372,6 +390,37 @@ int device_set_wakeup_enable(struct device *dev, bool enable)
 }
 EXPORT_SYMBOL_GPL(device_set_wakeup_enable);
 
+static bool wakeup_source_blocker(struct wakeup_source *ws)
+{
+	unsigned int wslen = 0;
+
+	if (!is_display_on() && ws && ws->active) {
+		wslen = strlen(ws->name);
+
+		if ((!enable_ipa_ws && !strncmp(ws->name, "IPA_WS", wslen)) ||
+			(!enable_wlan_extscan_wl_ws &&
+				!strncmp(ws->name, "wlan_extscan_wl", wslen)) ||
+			(!enable_qcom_rx_wakelock_ws &&
+				!strncmp(ws->name, "qcom_rx_wakelock", wslen)) ||
+			(!enable_wlan_wow_wl_ws &&
+				!strncmp(ws->name, "wlan_wow_wl", wslen)) ||
+			(!enable_wlan_ws &&
+				!strncmp(ws->name, "wlan", wslen)) ||
+			(!enable_netmgr_wl_ws &&
+				!strncmp(ws->name, "netmgr_wl", wslen)) ||
+			(!enable_timerfd_ws &&
+				!strncmp(ws->name, "[timerfd]", wslen)) ||
+			(!enable_netlink_ws &&
+				!strncmp(ws->name, "NETLINK", wslen))) {
+			wakeup_source_deactivate(ws);
+			pr_info("forcefully deactivate wakeup source: %s\n", ws->name);
+			return true;
+		}
+	}
+
+	return false;
+}
+
 /*
  * The functions below use the observation that each wakeup event starts a
  * period in which the system should not be suspended.  The moment this period
@@ -411,6 +460,9 @@ EXPORT_SYMBOL_GPL(device_set_wakeup_enable);
 static void wakeup_source_activate(struct wakeup_source *ws)
 {
 	unsigned int cec;
+
+	if (wakeup_source_blocker(ws))
+		return;
 
 	ws->active = true;
 	ws->active_count++;
@@ -714,17 +766,23 @@ void pm_get_active_wakeup_sources(char *pending_wakeup_source, size_t max)
 }
 EXPORT_SYMBOL_GPL(pm_get_active_wakeup_sources);
 
-static void print_active_wakeup_sources(void)
+void print_active_wakeup_sources(void)
 {
 	struct wakeup_source *ws;
 	int active = 0;
 	struct wakeup_source *last_activity_ws = NULL;
 
+	// kinda pointless to force this routine during screen on
+	if (is_display_on())
+		return;
+
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
 		if (ws->active) {
 			pr_info("active wakeup source: %s\n", ws->name);
-			active = 1;
+
+			if (!wakeup_source_blocker(ws))
+				active = 1;
 		} else if (!active &&
 			   (!last_activity_ws ||
 			    ktime_to_ns(ws->last_time) >
