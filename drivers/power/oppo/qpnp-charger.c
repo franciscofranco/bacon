@@ -1437,7 +1437,8 @@ qpnp_chg_vbatdet_lo_irq_handler(int irq, void *_chip)
 
 	pr_debug("chg_done chg_sts: 0x%x triggered\n", chg_sts);
 	if (!chip->charging_disabled && (chg_sts & FAST_CHG_ON_IRQ)) {
-		schedule_delayed_work(&chip->eoc_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->eoc_work,
 			msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 		pm_stay_awake(chip->dev);
 	}
@@ -1478,7 +1479,8 @@ qpnp_chg_usb_chg_gone_irq_handler(int irq, void *_chip)
 #ifndef CONFIG_BQ24196_CHARGER_OPPO
 		qpnp_chg_charge_en(chip, 0);
 		qpnp_chg_force_run_on_batt(chip, 1);
-		schedule_delayed_work(&chip->arb_stop_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->arb_stop_work,
 			msecs_to_jiffies(ARB_STOP_WORK_MS));
 #endif
 	}
@@ -1912,7 +1914,8 @@ qpnp_chg_coarse_det_usb_irq_handler(int irq, void *_chip)
 				return rc;
 			}
 			ovp_ctl = ovp_ctl & USB_VALID_DEBOUNCE_TIME_MASK;
-			schedule_delayed_work(&chip->usbin_health_check,
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->usbin_health_check,
 					msecs_to_jiffies(debounce[ovp_ctl]));
 		} else {
 			/* usb coarse-det rising edge, set the usb psy health
@@ -2050,7 +2053,8 @@ qpnp_chg_usb_usbin_valid_irq_handler(int irq, void *_chip)
 				qpnp_chg_set_appropriate_vddmax(chip);
 			}
 #endif
-			schedule_delayed_work(&chip->eoc_work,
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->eoc_work,
 				msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 			schedule_work(&chip->soc_check_work);
 #ifdef CONFIG_MACH_OPPO
@@ -2180,7 +2184,8 @@ qpnp_chg_dc_dcin_valid_irq_handler(int irq, void *_chip)
 				chip->delta_vddmax_mv = 0;
 				qpnp_chg_set_appropriate_vddmax(chip);
 			}
-			schedule_delayed_work(&chip->eoc_work,
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->eoc_work,
 				msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 			schedule_work(&chip->soc_check_work);
 		}
@@ -2281,7 +2286,8 @@ qpnp_chg_chgr_chg_fastchg_irq_handler(int irq, void *_chip)
 	}
 
 	if (!chip->charging_disabled) {
-		schedule_delayed_work(&chip->eoc_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->eoc_work,
 			msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 		pm_stay_awake(chip->dev);
 	}
@@ -4308,7 +4314,8 @@ qpnp_eoc_work(struct work_struct *work)
 	}
 
 stop_eoc:
-	schedule_delayed_work(&chip->eoc_work,
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->eoc_work,
 		msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 }
 #else
@@ -4428,7 +4435,8 @@ qpnp_eoc_work(struct work_struct *work)
 	}
 
 check_again_later:
-	schedule_delayed_work(&chip->eoc_work,
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->eoc_work,
 		msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 	return;
 
@@ -6682,7 +6690,8 @@ static void update_heartbeat(struct work_struct *work)
 		}
 		//lfc add for disable normal charge end
 		/*update time 6s*/
-		schedule_delayed_work(&chip->update_heartbeat_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->update_heartbeat_work,
 				      round_jiffies_relative(msecs_to_jiffies
 							     (BATT_HEARTBEAT_INTERVAL)));
 		return;
@@ -6707,7 +6716,8 @@ static void update_heartbeat(struct work_struct *work)
 	power_supply_changed(&chip->batt_psy);
 
 	/*update time 6s*/
-	schedule_delayed_work(&chip->update_heartbeat_work,
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_heartbeat_work,
 			      round_jiffies_relative(msecs_to_jiffies
 						     (BATT_HEARTBEAT_INTERVAL)));
 	//qpnp_dump_info(chip);
@@ -7272,7 +7282,8 @@ qpnp_charger_probe(struct spmi_device *spmi)
 		power_supply_set_online(chip->usb_psy, 1);
 
 #ifndef CONFIG_BQ24196_CHARGER_OPPO
-	schedule_delayed_work(&chip->aicl_check_work,
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->aicl_check_work,
 		msecs_to_jiffies(EOC_CHECK_PERIOD_MS));
 #endif
 #ifdef CONFIG_MACH_OPPO
@@ -7280,7 +7291,8 @@ qpnp_charger_probe(struct spmi_device *spmi)
 
 	INIT_DELAYED_WORK(&chip->update_heartbeat_work,
 							update_heartbeat);
-	schedule_delayed_work(&chip->update_heartbeat_work,
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_heartbeat_work,
 			      round_jiffies_relative(msecs_to_jiffies
 						(BATT_HEARTBEAT_INTERVAL)));
 	/*OPPO 2013-10-24 liaofuchun add begin for bq24196 charger*/
