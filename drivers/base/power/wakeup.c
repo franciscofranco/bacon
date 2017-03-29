@@ -16,7 +16,6 @@
 #include <linux/debugfs.h>
 #include <linux/types.h>
 #include <linux/moduleparam.h>
-#include <linux/display_state.h>
 #include <trace/events/power.h>
 
 #include "power.h"
@@ -551,16 +550,14 @@ static void wakeup_source_activate(struct wakeup_source *ws)
  */
 static void wakeup_source_report_event(struct wakeup_source *ws)
 {
-	if (!is_display_on()) {
-		if (!wakeup_source_blocker(ws)) {
-			ws->event_count++;
-			/* This is racy, but the counter is approximate anyway. */
-			if (events_check_enabled)
-				ws->wakeup_count++;
+	if (!wakeup_source_blocker(ws)) {
+		ws->event_count++;
+		/* This is racy, but the counter is approximate anyway. */
+		if (events_check_enabled)
+			ws->wakeup_count++;
 
-			if (!ws->active)
-				wakeup_source_activate(ws);
-		}
+		if (!ws->active)
+			wakeup_source_activate(ws);
 	}
 }
 
@@ -777,10 +774,6 @@ void print_active_wakeup_sources(void)
 	struct wakeup_source *ws;
 	int active = 0;
 	struct wakeup_source *last_activity_ws = NULL;
-
-	// kinda pointless to force this routine during screen on
-	if (is_display_on())
-		return;
 
 	rcu_read_lock();
 	list_for_each_entry_rcu(ws, &wakeup_sources, entry) {
