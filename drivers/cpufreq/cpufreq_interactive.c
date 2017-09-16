@@ -432,8 +432,8 @@ static void cpufreq_interactive_timer(unsigned long data)
 
 		jump_to_max = true;
 		new_freq = pcpu->policy->max;
-	} else if (go_hispeed_load && go_hispeed_load < 100 &&
-			cpu_load >= go_hispeed_load || boosted) {
+	} else if ((go_hispeed_load && go_hispeed_load < 100 &&
+			cpu_load >= go_hispeed_load) || boosted) {
 		if (pcpu->policy->cur < this_hispeed_freq) {
 			new_freq = this_hispeed_freq;
 		} else {
@@ -501,7 +501,7 @@ static void cpufreq_interactive_timer(unsigned long data)
 	 * expires (or the indefinite boost is turned off).
 	 */
 
-	if (!boosted || !jump_to_max && new_freq > this_hispeed_freq) {
+	if (!boosted || (!jump_to_max && new_freq > this_hispeed_freq)) {
 		pcpu->floor_freq = new_freq;
 		pcpu->floor_validate_time = now;
 	}
