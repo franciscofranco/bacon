@@ -563,8 +563,8 @@ static ssize_t mtp_read(struct file *fp, char __user *buf,
 
 	DBG(cdev, "mtp_read(%d)\n", count);
 
-	if (!dev->ep_out)
-		return -EINVAL;
+	if (dev == NULL || dev->ep_out == NULL)
+		return -ENODEV;
 
 	len = ALIGN(count, dev->ep_out->maxpacket);
 
