@@ -87,3 +87,6 @@ GTAGS
 
 # Generated source files
 smd_rpc_sym.c
+build.sh
+upload.sh
+version
